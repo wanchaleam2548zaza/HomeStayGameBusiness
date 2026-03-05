@@ -3,7 +3,7 @@ import './index.css';
 import { db } from './firebase';
 import { ref, update, get, serverTimestamp, remove, onValue } from "firebase/database";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Brush } from 'recharts';
-import { GAME_CONF, calculateRevenue, calculateExpense, getUpgradeCost } from './logic/gameLogic';
+import { GAME_CONF, calculateRevenue, calculateExpense, getUpgradeCost, calculateCycleIncome } from './logic/gameLogic';
 
 import { BUSINESS_TYPES, getSynchronizedEvent } from './config/eventsData';
 import InteractiveNews from './components/InteractiveNews';
@@ -15,6 +15,7 @@ import AuctionHouse from './components/AuctionHouse';
 import { TITLES, getSynchronizedAuctionItem } from './config/auctionData';
 import UpdateLogModal from './components/UpdateLogModal';
 import AdminDashboard from './components/AdminDashboard';
+import IncomeModal from './components/IncomeModal';
 
 // วางต่อจาก import ต่างๆ
 const getDeviceId = () => {
@@ -94,7 +95,7 @@ function App() {
   const [inventory, setInventory] = useState([]);
   const [activeTitle, setActiveTitle] = useState(null);
   const [showAuction, setShowAuction] = useState(false);
-  const [auctionItem, setAuctionItem] = useState(null);
+  const [auctionItem, setAuctionItem] = useState(() => getSynchronizedAuctionItem(Math.floor(Date.now() / 100000)));
   const [currentBucketState, setCurrentBucketState] = useState(0);
   const [auctionTimeLeft, setAuctionTimeLeft] = useState(0);
   const [isAuctionPhase, setIsAuctionPhase] = useState(false);
@@ -102,9 +103,13 @@ function App() {
   const [showIPWarning, setShowIPWarning] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [debt, setDebt] = useState(0);
-  const [baseLoanLimit] = useState(1000000); // วงเงินกู้สูงสุดพื้นฐาน 1 ล้านบาท
+  const [baseLoanLimit] = useState(1000000);
   const [showLoanModal, setShowLoanModal] = useState(false);
   const [showUpdateLog, setShowUpdateLog] = useState(false);
+  const [showIncomeModal, setShowIncomeModal] = useState(false);
+  const [pendingIncome, setPendingIncome] = useState(null);
+  const [incomeCycleSeconds, setIncomeCycleSeconds] = useState(120);
+  const [upcomingIncome, setUpcomingIncome] = useState(null); // บอกผู้เล่นล่วงหน้าว่าสิ งต้องจ่าย
 
   const showBusinessInfo = (type) => {
     const b = BUSINESS_TYPES[type];
@@ -122,6 +127,8 @@ function App() {
   const lastEventBucket = useRef(parseInt(localStorage.getItem('homestay_last_bucket_v2')) || 0);
   const lastExpandTime = useRef(Date.now());
   const auctionProcessedRef = useRef(null); // เก็บ bucket ที่ประมวลผลรางวัลไปแล้ว (กัน double reward)
+  const isDeletedRef = useRef(false); // 🛡️ ตรวจจับว่าผู้ใช้นี้โดนลบไปแล้ว เพื่อหยุดการ sync ทันที
+  const hasOpenedAuctionRef = useRef(false); // ตรวจสอบว่าประมูลรอบนี้ popup ขึ้นไปแล้วหรือยัง
 
   useEffect(() => {
     fetch('https://api.ipify.org?format=json')
@@ -147,7 +154,8 @@ function App() {
 
   // 🟢 แก้ไข syncDatabase: ห้ามล้างค่า multiplier ทิ้งถ้ายังไม่จบช่วงวิกฤต
   const syncDatabase = async (forceMoney = null) => {
-    if (!username) return;
+    // 🛡️ หากผู้เล่นไม่ได้เข้าสู่ระบบ หรือ ถูกลบไปแล้ว (isDeletedRef) ระบบจะไม่พยายามบันทึกข้อมูลใดๆ กู้ชีพข้อมูลเก่า
+    if (!username || isDeletedRef.current === true) return;
     const now = Date.now();
     const moneyToSave = forceMoney !== null ? forceMoney : moneyRef.current;
 
@@ -285,8 +293,13 @@ function App() {
     onValue(globalRef, (snap) => {
       if (snap.exists()) {
         const data = snap.val();
-        const playerStocks = Object.keys(data).map(key => data[key]);
+        // 🛡️ กรองเฉพาะหุ้นที่เป็นของ Player และมีข้อมูลจริง (ไม่เอา placeholder หรือข้อมูลที่ถูก null/ลบทิ้งไปแล้ว)
+        const playerStocks = Object.keys(data)
+          .filter(key => data[key] && data[key].isPlayer === true)
+          .map(key => data[key]);
         setGlobalStocks(playerStocks);
+      } else {
+        setGlobalStocks([]); // กรณีโดนล้างเซิร์ฟเวอร์
       }
     });
 
@@ -479,7 +492,13 @@ function App() {
     }
   };
 
+  const LOAN_THRESHOLD = 10000; // กู้ได้เหมือนเงินต่ำกว่าจำนวนนี้เท่านั้น
+
   const takeLoan = (amount) => {
+    if (moneyRef.current >= LOAN_THRESHOLD) {
+      alert(`❌ ยังไม่มีสิทธิ์กู้เงิน! \nว4 สามารถกู้ได้เมื่อเงินสดต่ำกว่า ฿${LOAN_THRESHOLD.toLocaleString()} เท่านั้น\nไม่สามารถใช้เงินกู้เพื่อปั่นผลกำไรได้`);
+      return;
+    }
     if (debt + amount <= loanLimit) {
       moneyRef.current += amount;
       setMoney(Math.floor(moneyRef.current));
@@ -503,6 +522,28 @@ function App() {
     }
   };
 
+  const handleAcceptIncome = async () => {
+    if (!pendingIncome) return;
+    const { netIncome, grossRevenue, tax, salary, debtPayment } = pendingIncome;
+
+    moneyRef.current += netIncome;
+    setMoney(Math.floor(moneyRef.current));
+
+    // หักหนี้ออกจากตัวแปรหนี้จริง
+    if (debtPayment > 0) {
+      debtRef.current -= debtPayment;
+      setDebt(debtRef.current);
+    }
+
+    setShowIncomeModal(false);
+    setPendingIncome(null);
+
+    const logMsg = `💰 รับเงินงวด: +฿${grossRevenue.toLocaleString()} | ภาษี -฿${tax.toLocaleString()} | เงินเดือน -฿${salary.toLocaleString()}${debtPayment > 0 ? ` | คืนหนี้ -฿${debtPayment.toLocaleString()}` : ''} | สุทธิ ${netIncome >= 0 ? '+' : ''}฿${netIncome.toLocaleString()}`;
+    setLogs(prev => [logMsg, ...prev].slice(0, 15));
+
+    await syncDatabase(moneyRef.current);
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('homestay_user');
     window.location.reload();
@@ -521,17 +562,21 @@ function App() {
     setBrandHype(50);
     setIsIPO(false);
 
-    // 🛡️ ล้างพอร์ตโฟลิโอทั้งหมด (ปัญหาหลัก!)
+    // 🛡️ ล้างพอร์ตโฟลิโอทั้งหมดและคลังฉายา
     setPortfolio({});
+    setInventory([]);
+    setActiveTitle(null);
 
     try {
       if (username) {
         // ลบหุ้นของเราในตลาดโลก
         await remove(ref(db, `global_stocks/${username}`));
 
-        // ล้าง Portfolio ใน DB ด้วย (portfolio: null = ลบ node)
+        // ล้าง Portfolio และ Inventory ใน DB ด้วย (portfolio: null = ลบ node)
         await update(ref(db, `users/${username}`), {
           portfolio: {},
+          inventory: [],
+          activeTitle: null,
           isIPO: false,
           fleetSize: 1,
           reputation: 5,
@@ -545,7 +590,7 @@ function App() {
       setLogs(prev => [newLog, ...prev].slice(0, 15));
 
       setShowLoanModal(false);
-      alert("ยื่นล้มละลายสำเร็จ! ระบบได้ล้างหนี้, Portfolio และรีเซ็ตธุรกิจของคุณแล้ว");
+      alert("ยื่นล้มละลายสำเร็จ! ระบบได้ล้างหนี้, Portfolio, ฉายา และรีเซ็ตธุรกิจของคุณแล้ว");
     } catch (err) {
       console.error("Bankruptcy Error:", err);
     }
@@ -577,9 +622,11 @@ function App() {
         content: Object.entries(TITLES).map(([id, t]) => (
           <div key={id} style={{ marginBottom: '10px', paddingBottom: '5px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
             <strong style={{ color: t.color }}>{t.name}</strong> (โอกาส: {t.dropRate}%)
-            <div style={{ fontSize: '0.8rem', color: '#00ff88' }}>
-              {t.hypeBonus > 0 && `🔥 +${t.hypeBonus}% Hype `}
-              {t.repBonus > 0 && `⭐ +${t.repBonus} Rep`}
+            <div style={{ fontSize: '0.8rem', display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '2px' }}>
+              {t.hypeBonus > 0 && <span style={{ color: '#ff4757' }}>🔥 +{t.hypeBonus}% Hype</span>}
+              {t.repBonus > 0 && <span style={{ color: '#FFD700' }}>⭐ +{t.repBonus} Rep</span>}
+              {t.incomeBonus > 0 && <span style={{ color: '#00ff88' }}>💰 +{t.incomeBonus}% รายได้</span>}
+              {t.salaryBonus < 0 && <span style={{ color: '#00E1FF' }}>👔 {t.salaryBonus}% เงินเดือน</span>}
             </div>
           </div>
         ))
@@ -615,6 +662,7 @@ function App() {
     const unsubscribe = onValue(userRef, (snap) => {
       // 🚨 ตรวจสอบ: ถ้า Data ผู้ใช้หลักเบื้องหลังหายไป = ถูกลบ/เตะ/เซิร์ฟเวอร์รีเซ็ต
       if (!snap.exists()) {
+        isDeletedRef.current = true; // หยุดพักการเซฟข้อมูลทั้งหมด กันจังหวะ ghost save กลับไปบนเซิร์ฟ
         alert("🚨 [SYSTEM ALERT]\nแอคเคานต์ของคุณถูกลบจากเซิร์ฟเวอร์ หรือ มีการรีเซ็ตระบบทั้งหมด โปรดล็อกอินใหม่!");
         localStorage.removeItem('homestay_user');
         window.location.reload();
@@ -624,30 +672,94 @@ function App() {
     return () => unsubscribe();
   }, [authStep, username]);
 
+  // 💰 ระบบรายได้รอบ 2 นาที — sync กับเวลาจริง (ไม่รีเซ็ตเมื่อ reload)
   useEffect(() => {
     if (authStep !== "game") return;
-    const profitPerTick = netProfit / (1000 / GAME_CONF.TICK_RATE);
-    const timer = setInterval(() => {
-      // 🟢 ระบบ "ภาษีคนรวยที่ขี้ขลาด" (Idle Cash Tax)
-      // ทุกๆ 1 นาที (60000ms) ถ้าเงินสดเกิน 1,000,000 และไม่ขยายสาขาเลย
-      if (moneyRef.current > 1000000 && (Date.now() - lastExpandTime.current) > 60000) {
-        moneyRef.current *= 0.95;
-        setLogs(prev => ["💸 โดนภาษีเงินเฟ้อหัก 5% (เนื่องจากธุรกิจไม่มีการเคลื่อนไหว)", ...prev].slice(0, 15));
-        lastExpandTime.current = Date.now(); // รีเซ็ตเพื่อไม่ให้โดนรัวๆ ใน tick ถัดไปทันที (จริงๆ ควรมีระบบแยกแต่ใส่ตรงนี้ประหยัด)
+
+    const CYCLE_SECS = 120; // 2 นาที
+    const lastTriggeredBucket = { current: -1 }; // ป้องกัน double trigger
+
+    const cycleTimer = setInterval(() => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const elapsedInCycle = nowSec % CYCLE_SECS;         // วินาทีที่ผ่านไปในรอบนี้
+      const remaining = CYCLE_SECS - elapsedInCycle;       // วินาทีที่เหลือ
+      const currentBucket = Math.floor(nowSec / CYCLE_SECS); // รอบปัจจุบัน
+
+      setIncomeCycleSeconds(remaining);
+
+      // อัปเดต preview รายได้แบบเรียลไทม์ (ทุก 1 วินาที)
+      const activeTitleData = TITLES[stateRef.current.activeTitle];
+      const baseIncome = calculateCycleIncome(
+        stateRef.current.businessType,
+        stateRef.current.fleetSize,
+        stateRef.current.reputation,
+        stateRef.current.currentEvent?.multiplier ?? 1,
+        activeTitleData?.incomeBonus || 0,
+        activeTitleData?.salaryBonus || 0
+      );
+
+      let previewDebtPay = 0;
+      const balanceBeforeDebt = moneyRef.current + baseIncome.grossRevenue - baseIncome.tax - baseIncome.salary;
+      if (debtRef.current > 0 && balanceBeforeDebt > 0) {
+        previewDebtPay = Math.min(Math.ceil(debtRef.current * 0.05), balanceBeforeDebt, debtRef.current);
       }
 
-      moneyRef.current += profitPerTick;
-      setMoney(Math.floor(moneyRef.current));
+      setUpcomingIncome({
+        ...baseIncome,
+        debtPayment: previewDebtPay,
+        netIncome: baseIncome.netIncome - previewDebtPay
+      });
 
-      // 🏦 ระบบคิดดอกเบี้ย (0.1% ต่อวินาที)
+      // ดอกเบี้ยหนี้ต่อวินาที (0.02% = ~1.2% ต่อนาที)
       if (debtRef.current > 0) {
-        // 0.1% ต่อวินาที คือ 0.001 / (1000 / TICK_RATE) ต่อ tick
-        const interestPerTick = (debtRef.current * 0.001) / (1000 / GAME_CONF.TICK_RATE);
-        setDebt(prev => prev + interestPerTick);
+        const interestPerSec = debtRef.current * 0.0002;
+        debtRef.current += interestPerSec;
+        setDebt(debtRef.current);
       }
-    }, GAME_CONF.TICK_RATE);
-    return () => clearInterval(timer);
-  }, [netProfit, authStep]);
+
+      // เมื่อครบรอบใหม่ (elapsedInCycle === 0) และยังไม่ได้ trigger รอบนี้
+      if (elapsedInCycle === 0 && lastTriggeredBucket.current !== currentBucket) {
+        lastTriggeredBucket.current = currentBucket;
+
+        // คำนวณรายได้งวดนี้
+        const activeTitle = TITLES[stateRef.current.activeTitle];
+        const titleBonus = activeTitle?.incomeBonus || 0;
+        const titleSalaryBonus = activeTitle?.salaryBonus || 0;
+        const eventMult = stateRef.current.currentEvent?.multiplier ?? 1;
+        const baseIncome = calculateCycleIncome(
+          stateRef.current.businessType,
+          stateRef.current.fleetSize,
+          stateRef.current.reputation,
+          eventMult,
+          titleBonus,
+          titleSalaryBonus
+        );
+
+        // คำนวณจ่ายหนี้อัตโนมัติ 5% ของหนี้ หากมีเงินเหลือพอ
+        let actualDebtPayment = 0;
+        const balanceBeforeDebt = moneyRef.current + baseIncome.grossRevenue - baseIncome.tax - baseIncome.salary;
+        if (debtRef.current > 0 && balanceBeforeDebt > 0) {
+          actualDebtPayment = Math.min(Math.ceil(debtRef.current * 0.05), balanceBeforeDebt, debtRef.current);
+        }
+
+        const finalIncome = {
+          ...baseIncome,
+          debtPayment: actualDebtPayment,
+          netIncome: baseIncome.netIncome - actualDebtPayment
+        };
+
+        // ✅ ล้มละลาย = เงินทั้งหมดหลังรับรายได้และหักค่าใช้จ่ายติบลบ (ไม่รวมการหักหนี้อัตโนมัติ)
+        const canAfford = balanceBeforeDebt >= 0;
+
+        // บันทึกรายได้ที่คาดหมายสำหรับแสดงใน UI
+        setUpcomingIncome(finalIncome);
+        setPendingIncome({ ...finalIncome, canAfford });
+        setShowIncomeModal(true);
+      }
+    }, 1000);
+
+    return () => clearInterval(cycleTimer);
+  }, [authStep]);
 
   useEffect(() => {
     if (authStep !== "game") return;
@@ -714,7 +826,7 @@ function App() {
       }
     }, 1000);
 
-    return () => clearInterval(timer);
+    return () => clearInterval(eventTimer);
   }, [authStep, businessType, username]);
 
   // 📢 ระบบแจ้งเตือน Event ใหม่
@@ -725,32 +837,67 @@ function App() {
     }
   }, [currentEvent.msg]);
 
-  // --- ระบบจัดการผู้ชนะประมูล: ใช้ onValue listener แบบ Real-time แทน ---
+  // --- ระบบ sync ข้อมูลประมูล (เพื่ออัปเดต UI เท่านั้น) ---
+  // เก็บข้อมูลล่าสุดจาก Firebase ใน ref เพื่อให้ interval ข้างล่างอ่านได้ทุกวินาที
+  const latestAuctionDataRef = useRef(null);
   useEffect(() => {
     if (authStep !== "game" || !username) return;
+    const auctionRef = ref(db, `global_auction`);
+    const unsubscribe = onValue(auctionRef, (snap) => {
+      latestAuctionDataRef.current = snap.exists() ? snap.val() : null;
+    });
+    return () => unsubscribe();
+  }, [authStep, username]);
 
+  // --- ระบบ Countdown + ตรวจสอบรางวัลประมูล (ทุก 1 วินาที) ---
+  useEffect(() => {
+    if (authStep !== "game" || !username) return;
     const auctionRef = ref(db, `global_auction`);
 
-    const unsubscribe = onValue(auctionRef, async (snap) => {
-      if (!snap.exists()) return;
-      const auctionData = snap.val();
-
-      // ตรวจสอบ: ช่วงเวลานอกประมูล และมีคนชนะประมูล
+    const timer = setInterval(async () => {
       const now = Date.now();
-      const timeLeftInBucket = 100 - (Math.floor(now / 1000) % 100);
-      const isOutsideAuction = timeLeftInBucket > 10;
+      const nowSec = Math.floor(now / 1000);
+      const timeLeftInBucket = 100 - (nowSec % 100);
+      const currentBucket = Math.floor(nowSec / 100);
 
-      // 🎁 มอบรางวัลทันทีเมื่อ: เป็นเราชนะ + ยังไม่จ่าย + พ้นช่วงประมูลแล้ว
-      const currentBucket = Math.floor(Date.now() / 100000);
+      setAuctionTimeLeft(timeLeftInBucket);
+
+      // ช่วง 10 วินาทีสุดท้าย = ช่วงประมูล
+      const isPhase = timeLeftInBucket <= 10 && timeLeftInBucket > 0;
+      setIsAuctionPhase(isPhase);
+
+      // เปิดหน้าต่างเมื่อเข้าช่วงประมูล (แค่ครั้งเดียวต่อรอบ)
+      if (isPhase && !hasOpenedAuctionRef.current) {
+        setShowAuction(true);
+        hasOpenedAuctionRef.current = true;
+      }
+
+      // ปิดหน้าต่างเมื่อพ้นช่วงประมูล
+      if (!isPhase) {
+        hasOpenedAuctionRef.current = false;
+        if (timeLeftInBucket === 100 || timeLeftInBucket === 99) {
+          setShowAuction(false);
+        }
+      }
+
+      // 🎁 ตรวจสอบรางวัลประมูลทุกวินาที (ทำงานแม้ Firebase ไม่มี event ใหม่)
+      const auctionData = latestAuctionDataRef.current;
+      if (!auctionData) return;
+
+      // ยึด auctionBucket = รอบที่ bid ถูกวาง ไม่ใช่รอบที่รีเซ็ต
+      const bidBucket = auctionData.auctionBucket || 0;
+      // รางวัลจะให้ก็ต่อเมื่อ: หมดรอบประมูลนั้นแล้ว (bucket ปัจจุบัน > bucket ที่ bid)
+      // หมายความว่าผ่านช่วง 10 วิสุดท้ายของรอบก่อนหน้าไปแล้ว
+      const isPastAuction = bidBucket > 0 && currentBucket > bidBucket;
+
       if (
+        isPastAuction &&
         auctionData.bidder === username &&
         !auctionData.isPaid &&
         auctionData.itemId &&
-        isOutsideAuction &&
-        auctionProcessedRef.current !== currentBucket // ยังไม่ได้ประมวลผลรอบนี้
+        auctionProcessedRef.current !== bidBucket
       ) {
-        auctionProcessedRef.current = currentBucket; // Mark ว่าประมวลผลรอบนี้แล้ว
-        // ✅ Mark isPaid ก่อนเลยเพื่อกัน Double-trigger
+        auctionProcessedRef.current = bidBucket;
         await update(auctionRef, { isPaid: true });
 
         if (moneyRef.current >= auctionData.price) {
@@ -784,61 +931,68 @@ function App() {
         }
       }
 
-      // 🔄 รีเซ็ตรอบใหม่: คนแรกที่เจอ bucket ใหม่ทำหน้าที่รีเซ็ต
-      if (auctionData.lastResetBucket !== currentBucket && isOutsideAuction) {
+      // 🔄 รีเซ็ตข้อมูลประมูลเมื่อใกล้เริ่มรอบใหม่ (วิ 10-12)
+      // รอให้ winner รับรางวัลไปก่อน (ส่วนบนข้างบนทำงานได้ทำงานทุกวินาทีหลังรอบเก่าจบ)
+      const isAuctionStarting = timeLeftInBucket <= 12 && timeLeftInBucket >= 10;
+      if (auctionData.lastResetBucket !== currentBucket && isAuctionStarting) {
         await update(auctionRef, {
           bidder: "ไม่มี",
           price: 0,
           isPaid: false,
           itemId: null,
+          auctionBucket: null,
           lastResetBucket: currentBucket
         });
       }
-    });
-
-    return () => unsubscribe();
-  }, [authStep, username]);
-
-  // --- ระบบ Countdown สำหรับ MARKET และ AUCTION ---
-  useEffect(() => {
-    if (authStep !== "game") return;
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const timeLeftInBucket = 100 - (Math.floor(now / 1000) % 100);
-      setAuctionTimeLeft(timeLeftInBucket);
-
-      // ช่วง 10 วินาทีสุดท้ายของ 100 วินาที คือช่วงประมูล
-      const isPhase = timeLeftInBucket <= 10;
-      setIsAuctionPhase(isPhase);
-
-      // เปิดหน้าต่างเฉพาะวินาทีที่ 10 เท่านั้น
-      if (timeLeftInBucket === 10) {
-        setShowAuction(true);
-      }
-
-      // ปิดหน้าต่างเมื่อพ้นช่วงประมูล (วินาทีที่ 99 = เริ่มรอบใหม่)
-      if (timeLeftInBucket === 99 || timeLeftInBucket === 100) {
-        setShowAuction(false);
-      }
     }, 1000);
+
     return () => clearInterval(timer);
-  }, [authStep]);
+  }, [authStep, username]);
 
   const handleEventChoice = useCallback((choice, isTimeout = false) => {
     localStorage.removeItem(`homestay_pending_${username}`);
     update(ref(db, `users/${username}`), { pendingPenalty: null });
 
-    // คำนวณ Hype Change
+    // 💰 หักเงินทันทีตามผลของเหตุการณ์ (แทนระบบ multiplier เดิม)
+    const mult = choice.effectMulti ?? 1;
+    if (mult !== 1) {
+      // คำนวณผลกระทบ: ใช้ 20% ของเงินปัจจุบัน เป็นฐานในการหัก/เพิ่ม
+      const baseImpact = Math.abs(moneyRef.current * 0.20);
+      if (mult < 0) {
+        // เหตุการณ์ร้ายแรงมาก (effectMulti ติดลบ) → หักเงินหนักมาก
+        const penalty = Math.floor(baseImpact * Math.abs(mult));
+        moneyRef.current = Math.max(0, moneyRef.current - penalty);
+        setMoney(Math.floor(moneyRef.current));
+        setLogs(prev => [`💸 เหตุการณ์วิกฤต: หักเงินทันที -฿${penalty.toLocaleString()}`, ...prev].slice(0, 15));
+      } else if (mult < 1) {
+        // เหตุการณ์แย่ (0 < mult < 1) → หักเงินปานกลาง
+        const penalty = Math.floor(baseImpact * (1 - mult));
+        moneyRef.current = Math.max(0, moneyRef.current - penalty);
+        setMoney(Math.floor(moneyRef.current));
+        setLogs(prev => [`💸 ผลเสีย: หักเงิน -฿${penalty.toLocaleString()}`, ...prev].slice(0, 15));
+      } else if (mult > 1) {
+        // เหตุการณ์ดี → รับเงินโบนัส
+        const bonus = Math.floor(baseImpact * (mult - 1));
+        moneyRef.current += bonus;
+        setMoney(Math.floor(moneyRef.current));
+        setLogs(prev => [`💰 โชคดี! ได้รับโบนัส +฿${bonus.toLocaleString()}`, ...prev].slice(0, 15));
+      }
+      setChartData(prev => [...prev, {
+        time: new Date().toLocaleTimeString('th-TH'),
+        value: Math.floor(moneyRef.current),
+        isLoss: mult < 1,
+        reason: isTimeout ? "หนีวิกฤตไม่พ้น!" : "ผลเหตุการณ์"
+      }]);
+    }
+
+    // อัปเดต Hype
     if (choice.hypeChange) {
       setBrandHype(prev => Math.max(0, prev + choice.hypeChange));
     }
 
-    setCurrentEvent({ msg: isTimeout ? "หมดเวลาตัดสินใจ!" : "ดำเนินการตามแผน...", multiplier: choice.effectMulti });
+    setCurrentEvent({ msg: isTimeout ? "หมดเวลาตัดสินใจ!" : "ดำเนินการตามแผน...", multiplier: 1 });
     setLogs(prev => [choice.logMsg, ...prev].slice(0, 15));
-    if (isTimeout || choice.effectMulti < 1) {
-      setChartData(prev => [...prev, { time: new Date().toLocaleTimeString('th-TH'), value: Math.floor(moneyRef.current), isLoss: true, reason: isTimeout ? "หนีวิกฤตไม่พ้น!" : "เสียเงินลงทุน" }]);
-    }
-    syncDatabase();
+    syncDatabase(moneyRef.current);
   }, [username]);
 
   const handleTitleSelect = async (e) => {
@@ -1104,15 +1258,52 @@ function App() {
             <strong className={brandHype < 80 ? "danger" : "success"}>{brandHype}%</strong>
             <p>Hype</p>
           </div>
-          <div className="info-card" style={{ boxShadow: netProfit >= 0 ? '0 4px 15px rgba(0, 225, 255, 0.1)' : '0 4px 15px rgba(255, 71, 87, 0.1)' }}>
-            <span onClick={() => showInfo('profit')} style={iStyle}>i</span>
-            <span style={{ fontSize: '1.2rem' }}>💰</span>
-            <strong className={netProfit >= 0 ? "success" : "danger"}>
-              {netProfit > 0 ? '+' : ''}{netProfit.toLocaleString(undefined, { minimumFractionDigits: 1 })}
+          <div className="info-card" style={{ boxShadow: '0 4px 15px rgba(0, 225, 255, 0.15)', position: 'relative', overflow: 'hidden' }}>
+            <span style={{ fontSize: '1.2rem' }}>⏱️</span>
+            <strong style={{ color: incomeCycleSeconds <= 15 ? '#ff4757' : '#00E1FF', fontSize: incomeCycleSeconds <= 15 ? '1.3rem' : '1rem' }}>
+              {Math.floor(incomeCycleSeconds / 60)}:{String(incomeCycleSeconds % 60).padStart(2, '0')}
             </strong>
-            <p>กำไร/วิ</p>
+            <p>รับเงินใน</p>
+            {/* progress bar */}
+            <div style={{ position: 'absolute', bottom: 0, left: 0, height: '3px', width: '100%', background: 'rgba(255,255,255,0.1)' }}>
+              <div style={{ height: '100%', width: `${((120 - incomeCycleSeconds) / 120) * 100}%`, background: incomeCycleSeconds <= 15 ? '#ff4757' : '#00E1FF', transition: 'width 1s linear' }} />
+            </div>
           </div>
         </div>
+
+        {/* สถานะรายจ่ายงวดถัดไป */}
+        {upcomingIncome && (
+          <div style={{
+            display: 'flex', gap: '8px', flexWrap: 'wrap',
+            padding: '6px 10px',
+            background: 'rgba(255,255,255,0.03)',
+            borderRadius: '10px',
+            fontSize: '0.72rem',
+            color: '#aaa',
+            alignItems: 'center',
+            border: '1px solid rgba(255,255,255,0.05)'
+          }}>
+            <span style={{ color: '#00ff88', fontWeight: 'bold' }}>งวดถัดไป:</span>
+            <span>💵 รายได้: <strong style={{ color: '#00ff88' }}>+฿{upcomingIncome.grossRevenue.toLocaleString()}</strong></span>
+            <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+            <span>🏩 ภาษี 10%: <strong style={{ color: '#ff4757' }}>-฿{upcomingIncome.tax.toLocaleString()}</strong></span>
+            <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+            <span>👔 ค่าแรง: <strong style={{ color: '#ff4757' }}>-฿{upcomingIncome.salary.toLocaleString()}</strong></span>
+            {upcomingIncome.debtPayment > 0 && (
+              <>
+                <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+                <span>🏦 หักหนี้อัตโนมัติ 5%: <strong style={{ color: '#00E1FF' }}>-฿{upcomingIncome.debtPayment.toLocaleString()}</strong></span>
+              </>
+            )}
+            <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+            <span>สุทธิ์: <strong style={{ color: upcomingIncome.netIncome >= 0 ? '#00ff88' : '#ff4757' }}>{upcomingIncome.netIncome >= 0 ? '+' : ''}฿{upcomingIncome.netIncome.toLocaleString()}</strong></span>
+            {upcomingIncome.netIncome < 0 && (
+              <span style={{ color: '#ffa502', fontWeight: 'bold', marginLeft: '4px' }}>
+                ⚠️ รายจ่ายเกินรายรับ
+              </span>
+            )}
+          </div>
+        )}
 
         {/* กราฟจะยืดเต็มพื้นที่ที่เหลือ */}
         <section className="chart-panel">
@@ -1137,7 +1328,7 @@ function App() {
               ฿{getUpgradeCost(fleetSize).toLocaleString()}
             </h3>
             <p style={{ fontSize: '0.6rem', color: '#00ff88' }}>
-              (+฿{((calculateRevenue(businessType, fleetSize + 1, reputation, 1) - calculateRevenue(businessType, fleetSize, reputation, 1))).toFixed(1)}/วิ)
+              (+฿{Math.floor(calculateRevenue(businessType, fleetSize + 1, reputation, 1) - calculateRevenue(businessType, fleetSize, reputation, 1)).toLocaleString()}/รอบ)
             </p>
 
             <button
@@ -1321,10 +1512,22 @@ function App() {
               </div>
 
               <div className="bank-actions">
+                {/* สถานะสิทธิ์กู้เงิน */}
+                {money >= 10000 ? (
+                  <div style={{ padding: '10px 14px', background: 'rgba(255,71,87,0.1)', border: '1px solid rgba(255,71,87,0.4)', borderRadius: '10px', marginBottom: '10px', fontSize: '0.75rem', color: '#ff4757', textAlign: 'center' }}>
+                    🔒 <strong>ยังไม่มีสิทธิ์กู้เงิน</strong><br />
+                    <span style={{ color: '#aaa', fontSize: '0.7rem' }}>เงินสดต้องต่ำกว่า ฿10,000 จึงจะกู้ได้<br />(เงินปัจจุบัน ฿{Math.floor(money).toLocaleString()})</span>
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 14px', background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: '10px', marginBottom: '10px', fontSize: '0.75rem', color: '#00ff88', textAlign: 'center' }}>
+                    ✅ <strong>มีสิทธิ์กู้เงิน</strong> — เงินสดต่ำกว่า ฿10,000
+                  </div>
+                )}
+
                 <button
                   className="btn-loan"
                   onClick={() => takeLoan(100000)}
-                  disabled={debt + 100000 > loanLimit}
+                  disabled={debt + 100000 > loanLimit || money >= 10000}
                 >
                   กู้เงิน ฿100,000
                 </button>
@@ -1360,7 +1563,7 @@ function App() {
                 🏛️ ยื่นคำร้องล้มละลาย
               </button>
               <p style={{ fontSize: '0.7rem', color: '#aaa' }}>
-                {money < 0 ? "⚠️ บัญชีติดลบ! ระบบธนาคารอนุญาตให้กู้เงินเพื่อรักษาสภาพคล่อง" : "เงินกู้อนุมัติไว พร้อมใช้งานทันที"}
+                {money < 0 ? "⚠️ บัญชีติดลบ! ระบบธนาคารอนุญาตให้กู้เงินเพื่อรักษาสภาพคล่อง" : money < 10000 ? "🟢 บัญชีของคุณอยู่ในเกณฑ์ฉุกเฉิน พร้อมอนุมัติสินเชื่อ" : "🔴 รายได้ดีเกินไป ธนาคารยังไม่อนุมัติเงินกู้ในขณะนี้"}
               </p>
               <button className="nav-button" onClick={() => setShowLoanModal(false)} style={{ width: '100%', marginTop: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
                 ออกจากระบบธนาคาร
@@ -1374,8 +1577,18 @@ function App() {
         item={auctionItem}
         username={username}
         money={moneyRef.current}
-        inventory={inventory} // ส่ง inventory ไปให้ AuctionHouse
+        inventory={inventory}
         onClose={() => setShowAuction(false)}
+      />
+      <IncomeModal
+        show={showIncomeModal}
+        incomeData={pendingIncome}
+        onAccept={handleAcceptIncome}
+        onBankrupt={() => {
+          setShowIncomeModal(false);
+          setPendingIncome(null);
+          handleBankruptcy();
+        }}
       />
       <UpdateLogModal
         show={showUpdateLog}

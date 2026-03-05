@@ -118,10 +118,56 @@ const StockMarket = ({ show, onClose, money, marketStocks, portfolio, onBuy, onS
                       🏢 บริษัทของคุณเอง
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <button onClick={() => onBuy(stock.symbol, stock.price, amount)} disabled={!canBuy} style={{ padding: '8px', background: canBuy ? 'rgba(0,255,136,0.15)' : 'transparent', color: canBuy ? '#00ff88' : '#444', border: `1px solid ${canBuy ? '#00ff88' : '#333'}`, borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}>BUY</button>
-                      <button onClick={() => onSell(stock.symbol, stock.price, amount)} disabled={!canSell} style={{ padding: '8px', background: canSell ? 'rgba(255,71,87,0.15)' : 'transparent', color: canSell ? '#ff4757' : '#444', border: `1px solid ${canSell ? '#ff4757' : '#333'}`, borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}>SELL</button>
-                    </div>
+                    <>
+                      {/* ปุ่ม BUY / SELL ปกติ */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <button onClick={() => onBuy(stock.symbol, stock.price, amount)} disabled={!canBuy} style={{ padding: '8px', background: canBuy ? 'rgba(0,255,136,0.15)' : 'transparent', color: canBuy ? '#00ff88' : '#444', border: `1px solid ${canBuy ? '#00ff88' : '#333'}`, borderRadius: '8px', cursor: canBuy ? 'pointer' : 'not-allowed', fontSize: '0.8rem' }}>BUY ×{amount}</button>
+                        <button onClick={() => onSell(stock.symbol, stock.price, amount)} disabled={!canSell} style={{ padding: '8px', background: canSell ? 'rgba(255,71,87,0.15)' : 'transparent', color: canSell ? '#ff4757' : '#444', border: `1px solid ${canSell ? '#ff4757' : '#333'}`, borderRadius: '8px', cursor: canSell ? 'pointer' : 'not-allowed', fontSize: '0.8rem' }}>SELL ×{amount}</button>
+                      </div>
+
+                      {/* ปุ่ม ALL IN / SELL ALL */}
+                      {(() => {
+                        const maxBuy = Math.min(Math.floor(money / stock.price), 200 - (myStock.shares || 0));
+                        const canAllIn = maxBuy > 0;
+                        const canSellAll = myStock.shares > 0;
+                        return (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                            <button
+                              onClick={() => onBuy(stock.symbol, stock.price, maxBuy)}
+                              disabled={!canAllIn}
+                              style={{
+                                padding: '7px',
+                                background: canAllIn ? 'rgba(0,255,136,0.3)' : 'transparent',
+                                color: canAllIn ? '#00ff88' : '#444',
+                                border: `1px solid ${canAllIn ? '#00ff88' : '#333'}`,
+                                borderRadius: '8px',
+                                cursor: canAllIn ? 'pointer' : 'not-allowed',
+                                fontSize: '0.7rem',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              🔥 ALL IN ({maxBuy})
+                            </button>
+                            <button
+                              onClick={() => onSell(stock.symbol, stock.price, myStock.shares)}
+                              disabled={!canSellAll}
+                              style={{
+                                padding: '7px',
+                                background: canSellAll ? 'rgba(255,71,87,0.3)' : 'transparent',
+                                color: canSellAll ? '#ff4757' : '#444',
+                                border: `1px solid ${canSellAll ? '#ff4757' : '#333'}`,
+                                borderRadius: '8px',
+                                cursor: canSellAll ? 'pointer' : 'not-allowed',
+                                fontSize: '0.7rem',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              💸 SELL ALL ({myStock.shares || 0})
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </>
                   )}
                 </div>
               );

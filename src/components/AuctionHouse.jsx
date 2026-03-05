@@ -19,9 +19,19 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
         const unsubscribe = onValue(auctionRef, (snap) => {
             if (snap.exists()) {
                 const data = snap.val();
-                setCurrentBid(data.price || 0);
-                setHighestBidder(data.bidder || 'ไม่มี');
-                setBidAmount(data.price > 0 ? data.price + 10000 : item.minBid);
+                const currentBucket = Math.floor(Date.now() / 100000);
+                // เช็คว่าเป็นข้อมูลของรอบที่แล้วตกค้างอยู่หรือไม่ (ข้ามรอบมาแล้วแต่ไม่มีใครรีเซ็ต)
+                const isOldData = data.auctionBucket && data.auctionBucket < currentBucket;
+
+                if (isOldData) {
+                    setCurrentBid(0);
+                    setHighestBidder('ไม่มี');
+                    setBidAmount(item.minBid);
+                } else {
+                    setCurrentBid(data.price || 0);
+                    setHighestBidder(data.bidder || 'ไม่มี');
+                    setBidAmount(data.price > 0 ? data.price + 10000 : item.minBid);
+                }
             } else {
                 setCurrentBid(0);
                 setHighestBidder('ไม่มี');
@@ -48,9 +58,12 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
         const auctionRef = ref(db, `global_auction`);
         try {
             await runTransaction(auctionRef, (currentData) => {
-                // ป้องกันการกดซ้อนถ้ามีคนให้ราคาสูงกว่าไปแล้วระหว่างทาง
-                if (currentData && currentData.price >= bidAmount) {
-                    return;
+                const currentBucket = Math.floor(Date.now() / 100000);
+                const isOldData = currentData && currentData.auctionBucket && currentData.auctionBucket < currentBucket;
+
+                // ป้องกันการกดซ้อนถ้ามีคนให้ราคาสูงกว่าไปแล้วระหว่างทาง (และข้อมูลไม่ใช่ของเก่าเก็บ)
+                if (!isOldData && currentData && currentData.price >= bidAmount) {
+                    return currentData; // ถ้าราคาสูงกว่าแล้วให้คืนค่าปเดิม ยกเลิก transaction
                 }
                 return {
                     ...currentData,
@@ -58,7 +71,8 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
                     bidder: username,
                     timestamp: Date.now(),
                     itemId: item.id,
-                    isPaid: false // ต้องเป็น false เสมอเมื่อมีการ Bid ใหม่
+                    isPaid: false, // ต้องเป็น false เสมอเมื่อมีการ Bid ใหม่
+                    auctionBucket: currentBucket // สลักชื่อกระดานประมูลของรอบนี้
                 };
             });
         } catch (error) {
@@ -110,7 +124,8 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '0.75rem', textAlign: 'left' }}>
                         {item.hypeBonus > 0 && <div>🔥 Hype: <span style={{ color: '#ff4757', fontWeight: 'bold' }}>+{item.hypeBonus}%</span></div>}
                         {item.repBonus > 0 && <div>⭐ Rep: <span style={{ color: '#FFD700', fontWeight: 'bold' }}>+{item.repBonus}</span></div>}
-                        {item.incomeBonus > 0 && <div>💰 รายได้: <span style={{ color: '#00ff88', fontWeight: 'bold' }}>+{(item.incomeBonus * 100).toFixed(0)}%</span></div>}
+                        {item.incomeBonus > 0 && <div>💰 รายได้: <span style={{ color: '#00ff88', fontWeight: 'bold' }}>+{item.incomeBonus}%</span></div>}
+                        {item.salaryBonus < 0 && <div>👔 เงินเดือน: <span style={{ color: '#00E1FF', fontWeight: 'bold' }}>{item.salaryBonus}%</span></div>}
                         {item.loanBonus > 0 && <div>🏦 วงเงินกู้: <span style={{ color: '#00E1FF', fontWeight: 'bold' }}>+฿{item.loanBonus.toLocaleString()}</span></div>}
                         {item.stockBonus > 1 && <div>📈 ราคาหุ้น: <span style={{ color: '#a335ee', fontWeight: 'bold' }}>x{item.stockBonus.toFixed(2)}</span></div>}
                     </div>
