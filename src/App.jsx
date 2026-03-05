@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './index.css';
 import { db } from './firebase';
-import { ref, update, get, serverTimestamp, remove } from "firebase/database";
+import { ref, update, get, serverTimestamp, remove, onValue } from "firebase/database";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Brush } from 'recharts';
 import { GAME_CONF, calculateRevenue, calculateExpense, getUpgradeCost } from './logic/gameLogic';
 
@@ -13,6 +13,17 @@ import StockMarket from './components/StockMarket';
 import InfoModal from './components/InfoModal';
 import AuctionHouse from './components/AuctionHouse';
 import { TITLES, getSynchronizedAuctionItem } from './config/auctionData';
+
+// วางต่อจาก import ต่างๆ
+const getDeviceId = () => {
+  let deviceId = localStorage.getItem('game_device_id');
+  if (!deviceId) {
+    deviceId = 'dev_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    localStorage.setItem('game_device_id', deviceId);
+  }
+  return deviceId;
+};
+const DEVICE_ID = getDeviceId();
 
 const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
@@ -54,6 +65,7 @@ function App() {
   const [authStep, setAuthStep] = useState("loading");
   const [inputValue, setInputValue] = useState("");
   const [playerIP, setPlayerIP] = useState("Loading...");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [money, setMoney] = useState(GAME_CONF.INITIAL_MONEY);
   const [fleetSize, setFleetSize] = useState(1);
@@ -241,14 +253,54 @@ function App() {
     } catch (err) { setAuthStep("login"); }
   };
 
-  const fetchGlobalMarket = async () => {
+  const fetchGlobalMarket = () => {
     if (authStep !== "game") return;
-    try {
-      const snap = await get(ref(db, 'global_stocks'));
+
+    // Listen to Player Stocks
+    const globalRef = ref(db, 'global_stocks');
+    onValue(globalRef, (snap) => {
       if (snap.exists()) {
         const data = snap.val();
         const playerStocks = Object.keys(data).map(key => data[key]);
         setGlobalStocks(playerStocks);
+      }
+    });
+
+    // Listen to System Stocks
+    const sysRef = ref(db, 'global_market/sys_stocks');
+    onValue(sysRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.val();
+        setSysStocks(data.stocks);
+      }
+    });
+  };
+
+  const syncSystemStocks = async () => {
+    if (authStep !== "game") return;
+    try {
+      const sysRef = ref(db, 'global_market/sys_stocks');
+      const snap = await get(sysRef);
+      const now = Date.now();
+
+      if (snap.exists()) {
+        const data = snap.val();
+        // ถ้ามีการอัปเดตไปแล้วไม่เกิน 5 วินาที ไม่ต้องทำอะไร
+        if (now - (data.lastUpdate || 0) < 5000) return;
+
+        // อัปเดตราคาทุกตัว
+        const newStocks = updateStockPrices(data.stocks);
+        await update(sysRef, {
+          stocks: newStocks,
+          lastUpdate: now
+        });
+      } else {
+        // เริ่มต้นตลาดหุ้นระบบครั้งแรก
+        const initial = INITIAL_STOCKS.map(s => ({ ...s, price: s.basePrice, prevPrice: s.basePrice }));
+        await update(sysRef, {
+          stocks: initial,
+          lastUpdate: now
+        });
       }
     } catch (err) { }
   };
@@ -290,49 +342,69 @@ function App() {
     if (!inputValue.trim()) return;
     const inputUser = inputValue.trim().toLowerCase();
 
+    // (ส่วนที่เช็ค Regex ชื่อผู้ใช้คงไว้เหมือนเดิม)
+
+    setIsLoggingIn(true);
     try {
-      // 1. ตรวจสอบว่ามีใครใช้ IP นี้อยู่แล้วหรือไม่ (ยกเว้นตัวเอง)
-      const usersSnap = await get(ref(db, 'users'));
-      if (usersSnap.exists()) {
-        const allUsers = usersSnap.val();
-        const duplicateUser = Object.keys(allUsers).find(key =>
-          key !== inputUser && allUsers[key].lastIP === playerIP
-        );
+      const userRef = ref(db, `users/${inputUser}`);
+      const snapshot = await get(userRef);
+      const allUsersSnap = await get(ref(db, 'users'));
+      const allUsers = allUsersSnap.val() || {};
 
-        if (duplicateUser) {
-          // พบ account เก่าที่ใช้ IP เดียวกัน
-          setConflictUser({
-            username: duplicateUser,
-            displayName: allUsers[duplicateUser].displayName || "ไม่ระบุชื่อ"
-          });
-          setShowIPWarning(true);
-          return; // หยุดเพื่อให้ผู้เล่นตัดสินใจ
-        }
+      // --- แก้ไขจุดนี้: เปลี่ยนจากเช็ค IP มาเช็ค DEVICE_ID ---
+      const duplicateUser = Object.keys(allUsers).find(key =>
+        key !== inputUser && allUsers[key].deviceId === DEVICE_ID
+      );
+
+      if (duplicateUser && !snapshot.exists()) {
+        setConflictUser({
+          username: duplicateUser,
+          displayName: allUsers[duplicateUser].displayName || duplicateUser
+        });
+        setShowIPWarning(true);
+        setIsLoggingIn(false);
+        return;
       }
+      // --------------------------------------------------
 
-      // 2. ถ้าไม่มีปัญหา ให้ดำเนินการล็อกอินปกติ
-      proceedLogin(inputUser);
+      await proceedLogin(inputUser);
     } catch (err) {
-      console.error("Login Error:", err);
+      console.error("Login error:", err);
+      setIsLoggingIn(false);
     }
   };
 
   // แยกฟังก์ชันล็อกอินออกมาเพื่อให้เรียกใช้ซ้ำได้
-  const proceedLogin = async (userLogin) => {
-    localStorage.setItem('homestay_device_owner', userLogin);
-    localStorage.setItem('homestay_user', userLogin);
-    setUsername(userLogin);
-    setInputValue("");
+  const proceedLogin = async (username) => {
+    const userRef = ref(db, `users/${username}`);
+    const snap = await get(userRef);
 
-    // อัปเดต IP ล่าสุดลงใน DB
-    await update(ref(db, `users/${userLogin}`), { lastIP: playerIP });
-
-    const snap = await get(ref(db, `users/${userLogin}`));
-    if (snap.exists() && snap.val().displayName) {
-      loadPlayerData(userLogin);
+    if (!snap.exists()) {
+      // กรณีสมัครไอดีใหม่: บันทึก DEVICE_ID ลงในฐานข้อมูล
+      await update(userRef, {
+        username: username,
+        displayName: inputValue.trim(),
+        balance: GAME_CONF.INITIAL_CASH,
+        lastLogin: serverTimestamp(),
+        deviceId: DEVICE_ID, // บันทึก ID เครื่อง
+        lastIP: playerIP     // บันทึก IP ไว้เพื่อตรวจสอบภายหลัง
+      });
     } else {
-      setAuthStep("setup_name");
+      // กรณีเข้าไอดีเดิม: อัปเดตข้อมูลการเข้าใช้งานล่าสุด
+      await update(userRef, {
+        lastLogin: serverTimestamp(),
+        deviceId: DEVICE_ID, // อัปเดต ID เครื่องล่าสุดที่ใช้เล่นไอดีนี้
+        lastIP: playerIP
+      });
     }
+
+    // ดึงข้อมูลล่าสุดหลังจากบันทึกเสร็จ
+    const finalSnap = await get(userRef);
+    setUserData({
+      username,
+      ...finalSnap.val()
+    });
+    setIsLoggingIn(false);
   };
 
   const handleDeleteAndSwitch = async () => {
@@ -365,6 +437,7 @@ function App() {
       return;
     }
 
+    setIsLoggingIn(true);
     try {
       await update(ref(db, `users/${username}`), {
         displayName: newDisplayName,
@@ -380,6 +453,9 @@ function App() {
       setAuthStep("game");
     } catch (err) {
       console.error("Error saving display name:", err);
+      alert("❌ ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -533,7 +609,7 @@ function App() {
     if (authStep !== "game") return;
 
     const stockTimer = setInterval(() => {
-      setSysStocks(prev => updateStockPrices(prev));
+      syncSystemStocks();
     }, 5000);
 
     fetchLeaderboard();
@@ -542,7 +618,6 @@ function App() {
     const saveTimer = setInterval(() => syncDatabase(), 10000);
     const globalMarketTimer = setInterval(() => {
       fetchLeaderboard();
-      fetchGlobalMarket();
     }, 15000);
 
     const chartTimer = setInterval(() => {
@@ -803,7 +878,13 @@ function App() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
               />
-              <button className="primary-btn full-width" onClick={handleLogin}>NEXT</button>
+              <button
+                className="primary-btn full-width"
+                onClick={handleLogin}
+                disabled={isLoggingIn}
+              >
+                {isLoggingIn ? "CONNECTING..." : "NEXT"}
+              </button>
             </>
           ) : (
             <>
@@ -871,10 +952,10 @@ function App() {
               <button
                 className="primary-btn full-width"
                 onClick={handleSetDisplayName}
-                disabled={!isConfirmed}
-                style={{ opacity: isConfirmed ? 1 : 0.5 }}
+                disabled={!isConfirmed || isLoggingIn}
+                style={{ opacity: isConfirmed && !isLoggingIn ? 1 : 0.5 }}
               >
-                START BUSINESS
+                {isLoggingIn ? "PREPARING..." : "START BUSINESS"}
               </button>
             </>
           )}
