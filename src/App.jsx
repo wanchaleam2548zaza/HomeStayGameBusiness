@@ -98,7 +98,7 @@ function App() {
   const [showIPWarning, setShowIPWarning] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [debt, setDebt] = useState(0);
-  const [loanLimit, setLoanLimit] = useState(1000000); // วงเงินกู้สูงสุด 1 ล้านบาท
+  const [baseLoanLimit] = useState(1000000); // วงเงินกู้สูงสุดพื้นฐาน 1 ล้านบาท
   const [showLoanModal, setShowLoanModal] = useState(false);
 
   const showBusinessInfo = (type) => {
@@ -124,8 +124,11 @@ function App() {
       .catch(() => setPlayerIP("127.0.0.1"));
   }, []);
 
-  const titleBonus = activeTitle && TITLES[activeTitle] ? TITLES[activeTitle] : { hypeBonus: 0, repBonus: 0 };
-  const netProfit = calculateRevenue(businessType, fleetSize, reputation + titleBonus.repBonus, currentEvent.multiplier || 1) - calculateExpense(businessType, fleetSize, 0);
+  const titleBonus = activeTitle && TITLES[activeTitle] ? TITLES[activeTitle] : { hypeBonus: 0, repBonus: 0, incomeBonus: 0, loanBonus: 0, stockBonus: 1 };
+  const loanLimit = baseLoanLimit + (titleBonus.loanBonus || 0); // ✨ ฉายาเพิ่มวงเงินกู้
+  const baseNetProfit = calculateRevenue(businessType, fleetSize, reputation + titleBonus.repBonus, currentEvent.multiplier || 1) - calculateExpense(businessType, fleetSize, 0);
+  // ✨ ฉายาเพิ่ม incomeBonus% ให้กับรายได้สุทธิ
+  const netProfit = baseNetProfit * (1 + (titleBonus.incomeBonus || 0));
 
   useEffect(() => {
     stateRef.current = {
@@ -687,58 +690,61 @@ function App() {
       const auctionRef = ref(db, `global_auction`);
       const snap = await get(auctionRef);
 
-      if (snap.exists()) {
-        const auctionData = snap.val();
+      if (!snap.exists()) return;
+      const auctionData = snap.val();
 
-        // 1. ตรวจสอบและมอบรางวัล / หักค่าปรับ
-        if (auctionData.bidder === username && !auctionData.isPaid) {
-          if (moneyRef.current >= auctionData.price) {
-            // กรณีเงินพอ: หักเงิน + มอบไอเทม
-            moneyRef.current -= auctionData.price;
-            setMoney(Math.floor(moneyRef.current));
+      // 🎁 ขั้นที่ 1: มอบรางวัลผู้ชนะ (ถ้าเป็นเราและยังไม่ได้จ่าย)
+      // ต้องมี itemId และ bidder เป็นชื่อเรา และ isPaid ยังเป็น false
+      if (
+        auctionData.bidder === username &&
+        !auctionData.isPaid &&
+        auctionData.itemId
+      ) {
+        // ✅ Mark เป็น isPaid ทันทีเพื่อกัน Race Condition (ป้องกันหักเงินซ้ำ)
+        await update(auctionRef, { isPaid: true });
 
-            const newTitleId = auctionData.itemId;
-            const currentInv = stateRef.current.inventory || [];
-            const updatedInventory = [...new Set([...currentInv, newTitleId])];
+        if (moneyRef.current >= auctionData.price) {
+          // กรณีเงินพอ: หักเงิน + มอบไอเทม
+          moneyRef.current -= auctionData.price;
+          setMoney(Math.floor(moneyRef.current));
 
-            setInventory(updatedInventory);
-            setActiveTitle(newTitleId);
+          const newTitleId = auctionData.itemId;
+          const currentInv = stateRef.current.inventory || [];
+          const updatedInventory = [...new Set([...currentInv, newTitleId])];
 
-            await update(ref(db, `users/${username}`), {
-              inventory: updatedInventory,
-              money: Math.floor(moneyRef.current),
-              activeTitle: newTitleId
-            });
+          setInventory(updatedInventory);
+          setActiveTitle(newTitleId);
 
-            setLogs(prev => [`🎊 ชนะประมูล! ได้รับ [${TITLES[newTitleId]?.name || 'ฉายาใหม่'}] หักเงิน ฿${auctionData.price.toLocaleString()}`, ...prev].slice(0, 15));
-          } else {
-            // กรณีเงินไม่พอ: โดนค่าปรับ 20%
-            const penaltyAmount = Math.floor(auctionData.price * 0.2);
-            moneyRef.current -= penaltyAmount;
-            setMoney(Math.floor(moneyRef.current));
-
-            await update(ref(db, `users/${username}`), {
-              money: Math.floor(moneyRef.current)
-            });
-
-            setLogs(prev => [`🚫 ประมูลล้มเหลว! เงินไม่พอจ่าย โดนค่าปรับผิดนัด ฿${penaltyAmount.toLocaleString()} (20%)`, ...prev].slice(0, 15));
-          }
-
-          // ยืนยันว่าจ่ายเงิน/โดนปรับแล้ว (isPaid เป็น true)
-          await update(auctionRef, { isPaid: true });
-        }
-
-        // 2. 🚨 หัวใจสำคัญ: ล้างข้อมูลประมูลเพื่อให้รอบใหม่เริ่มจากราคา 0
-        // ให้ผู้เล่นคนแรกที่ตรวจพบการเปลี่ยนรอบ (currentBucketState) เป็นคน Reset
-        if (auctionData.lastResetBucket !== currentBucketState) {
-          await update(auctionRef, {
-            bidder: "ไม่มี",
-            price: 0,
-            isPaid: false,
-            itemId: null,
-            lastResetBucket: currentBucketState // มาร์คไว้ว่ารีเซ็ตรอบนี้แล้ว
+          await update(ref(db, `users/${username}`), {
+            inventory: updatedInventory,
+            money: Math.floor(moneyRef.current),
+            activeTitle: newTitleId
           });
+
+          setLogs(prev => [`🎊 ชนะประมูล! ได้รับ [${TITLES[newTitleId]?.name || 'ฉายาใหม่'}] หักเงิน ฿${auctionData.price.toLocaleString()}`, ...prev].slice(0, 15));
+        } else {
+          // กรณีเงินไม่พอ: โดนค่าปรับ 20%
+          const penaltyAmount = Math.floor(auctionData.price * 0.2);
+          moneyRef.current -= penaltyAmount;
+          setMoney(Math.floor(moneyRef.current));
+
+          await update(ref(db, `users/${username}`), {
+            money: Math.floor(moneyRef.current)
+          });
+
+          setLogs(prev => [`🚫 ประมูลล้มเหลว! เงินไม่พอจ่าย โดนค่าปรับผิดนัด ฿${penaltyAmount.toLocaleString()} (20%)`, ...prev].slice(0, 15));
         }
+      }
+
+      // � ขั้นที่ 2: รีเซ็ตรอบใหม่ (แยกออกจากการมอบรางวัล)
+      if (auctionData.lastResetBucket !== currentBucketState) {
+        await update(auctionRef, {
+          bidder: "ไม่มี",
+          price: 0,
+          isPaid: false,
+          itemId: null,
+          lastResetBucket: currentBucketState
+        });
       }
     };
 
@@ -1150,11 +1156,14 @@ function App() {
                       >
                         <div>
                           <span style={{ color: t.color, fontWeight: 'bold' }}>{t.name}</span>
-                          <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>{t.rarity}</div>
+                          <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>{t.rarity}</div>
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          {t.hypeBonus > 0 && <div style={{ color: '#ff9f43' }}>🔥 +{t.hypeBonus}%</div>}
-                          {t.repBonus > 0 && <div style={{ color: '#00d2d3' }}>⭐ +{t.repBonus}</div>}
+                        <div style={{ textAlign: 'right', fontSize: '0.72rem', display: 'grid', gap: '2px' }}>
+                          {t.hypeBonus > 0 && <div style={{ color: '#ff9f43' }}>🔥 +{t.hypeBonus}% Hype</div>}
+                          {t.repBonus > 0 && <div style={{ color: '#00d2d3' }}>⭐ +{t.repBonus} Rep</div>}
+                          {t.incomeBonus > 0 && <div style={{ color: '#00ff88' }}>💰 +{(t.incomeBonus * 100).toFixed(0)}% Income</div>}
+                          {t.loanBonus > 0 && <div style={{ color: '#00E1FF' }}>🏦 +฿{t.loanBonus.toLocaleString()}</div>}
+                          {t.stockBonus > 1 && <div style={{ color: '#a335ee' }}>📈 x{t.stockBonus.toFixed(2)} หุ้น</div>}
                         </div>
                       </div>
                     );

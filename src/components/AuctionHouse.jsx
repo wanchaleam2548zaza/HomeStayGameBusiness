@@ -89,7 +89,12 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
                 >
                     <h1 style={{ color: item.color, margin: '0', fontSize: '1.8rem' }}>{item.name}</h1>
                     <p style={{ fontSize: '0.8rem', color: '#aaa', margin: '5px 0' }}>
-                        ระดับ: {item.rarity} | <span style={{ color: '#00E1FF' }}>โอกาส: {item.dropRate}%</span>
+                        ระดับ: <span style={{
+                            color: item.rarity === 'Legendary' ? '#ff0055' :
+                                item.rarity === 'Epic' ? '#a335ee' :
+                                    item.rarity === 'Rare' ? '#0070dd' :
+                                        item.rarity === 'Common' ? '#1eff00' : '#aaaaaa'
+                        }}>{item.rarity}</span> | <span style={{ color: '#00E1FF' }}>โอกาส: {item.dropRate}%</span>
                     </p>
                     {/* เพิ่มการแสดงราคาประมูลขั้นต่ำ */}
                     <p style={{ fontSize: '0.85rem', color: '#00ff88', fontWeight: 'bold' }}>
@@ -102,7 +107,13 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
                         </p>
                     )}
                     <hr style={{ opacity: 0.1, margin: '10px 0' }} />
-                    <p style={{ fontSize: '0.9rem' }}>Hype: +{item.hypeBonus}% | Reputation: +{item.repBonus}%</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '0.75rem', textAlign: 'left' }}>
+                        {item.hypeBonus > 0 && <div>🔥 Hype: <span style={{ color: '#ff4757', fontWeight: 'bold' }}>+{item.hypeBonus}%</span></div>}
+                        {item.repBonus > 0 && <div>⭐ Rep: <span style={{ color: '#FFD700', fontWeight: 'bold' }}>+{item.repBonus}</span></div>}
+                        {item.incomeBonus > 0 && <div>💰 รายได้: <span style={{ color: '#00ff88', fontWeight: 'bold' }}>+{(item.incomeBonus * 100).toFixed(0)}%</span></div>}
+                        {item.loanBonus > 0 && <div>🏦 วงเงินกู้: <span style={{ color: '#00E1FF', fontWeight: 'bold' }}>+฿{item.loanBonus.toLocaleString()}</span></div>}
+                        {item.stockBonus > 1 && <div>📈 ราคาหุ้น: <span style={{ color: '#a335ee', fontWeight: 'bold' }}>x{item.stockBonus.toFixed(2)}</span></div>}
+                    </div>
                 </div>
 
                 <div style={{ marginBottom: '20px', textAlign: 'center' }}>
