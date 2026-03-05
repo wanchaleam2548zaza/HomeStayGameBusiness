@@ -601,6 +601,23 @@ function App() {
     setInfoPopup({ show: true, ...infoData[type] });
   };
 
+  // 🛡️ ระบบเตะผู้เล่นอัตโนมัติ (ฟังคำสั่ง Admin Reset)
+  useEffect(() => {
+    if (authStep !== "game" || !username || username === "homestaywann") return;
+
+    const userRef = ref(db, `users/${username}`);
+    const unsubscribe = onValue(userRef, (snap) => {
+      // 🚨 ตรวจสอบ: ถ้า Data ผู้ใช้หลักเบื้องหลังหายไป = ถูกลบ/เตะ/เซิร์ฟเวอร์รีเซ็ต
+      if (!snap.exists()) {
+        alert("🚨 [SYSTEM ALERT]\nแอคเคานต์ของคุณถูกลบจากเซิร์ฟเวอร์ หรือ มีการรีเซ็ตระบบทั้งหมด โปรดล็อกอินใหม่!");
+        localStorage.removeItem('homestay_user');
+        window.location.reload();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [authStep, username]);
+
   useEffect(() => {
     if (authStep !== "game") return;
     const profitPerTick = netProfit / (1000 / GAME_CONF.TICK_RATE);
