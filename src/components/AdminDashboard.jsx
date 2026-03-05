@@ -127,7 +127,7 @@ const AdminDashboard = ({ username, onLogout }) => {
     const td = { padding: '8px 12px', borderBottom: '1px solid #21262d', fontSize: '0.85rem' };
 
     return (
-        <div style={{ minHeight: '100vh', width: '100vw', background: '#0d1117', color: '#c9d1d9', padding: '20px', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', boxSizing: 'border-box' }}>
+        <div style={{ height: '100vh', width: '100vw', background: '#0d1117', color: '#c9d1d9', padding: '16px', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', boxSizing: 'border-box' }}>
 
             {/* Header */}
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #30363d', paddingBottom: '15px' }}>
@@ -204,90 +204,95 @@ const AdminDashboard = ({ username, onLogout }) => {
                 </div>
 
                 {/* Player Table */}
-                <div style={{ flex: '2 1 500px', background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '20px', overflowX: 'auto' }}>
+                <div style={{ flex: '2 1 500px', background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '20px', overflow: 'hidden' }}>
                     <h2 style={{ borderBottom: '1px solid #30363d', paddingBottom: '10px', marginTop: 0, fontSize: '1rem' }}>
                         👥 ผู้เล่น ({playerList.length}) <span style={{ fontSize: '0.7rem', color: '#3fb950', fontWeight: 'normal' }}>● LIVE</span>
                     </h2>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr>
-                                <th style={th}>ชื่อ / Username</th>
-                                <th style={th}>เงิน</th>
-                                <th style={th}>หนี้</th>
-                                <th style={th}>ยูนิต</th>
-                                <th style={th}>IPO</th>
-                                <th style={th}>ธุรกิจ</th>
-                                <th style={th}></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {playerList.map(([key, data]) => (
-                                <tr key={key} style={{ background: selectedUser === key ? 'rgba(88,166,255,0.05)' : 'transparent' }} onClick={() => setSelectedUser(key)}>
-                                    <td style={td}>
-                                        <div style={{ color: '#58a6ff', fontWeight: 'bold' }}>{data.displayName}</div>
-                                        <div style={{ color: '#484f58', fontSize: '0.75rem' }}>@{key}</div>
-                                    </td>
-                                    <td style={{ ...td, color: data.money < 0 ? '#da3633' : '#3fb950', fontWeight: 'bold' }}>
-                                        ฿{Number(data.money || 0).toLocaleString()}
-                                    </td>
-                                    <td style={{ ...td, color: data.debt > 0 ? '#da3633' : '#484f58' }}>
-                                        {data.debt > 0 ? `฿${Number(data.debt).toLocaleString()}` : '—'}
-                                    </td>
-                                    <td style={td}>{data.fleetSize || 1}</td>
-                                    <td style={td}>{data.isIPO ? '✅' : '—'}</td>
-                                    <td style={{ ...td, color: '#8b949e', fontSize: '0.75rem' }}>{data.businessType || 'homestay'}</td>
-                                    <td style={td}>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteUser(key); }}
-                                            style={{ background: '#da3633', color: 'white', border: 'none', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>
-                                            ลบ
-                                        </button>
-                                    </td>
+                    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '300px' }}>
+                        <table style={{ width: '100%', minWidth: '550px', borderCollapse: 'collapse' }}>
+                            <thead style={{ position: 'sticky', top: 0, background: '#161b22', zIndex: 1 }}>
+                                <tr>
+                                    <th style={th}>ชื่อ / Username</th>
+                                    <th style={th}>เงิน</th>
+                                    <th style={th}>หนี้</th>
+                                    <th style={th}>ยูนิต</th>
+                                    <th style={th}>IPO</th>
+                                    <th style={th}>ธุรกิจ</th>
+                                    <th style={th}></th>
                                 </tr>
-                            ))}
-                            {playerList.length === 0 && (
-                                <tr><td colSpan={7} style={{ ...td, textAlign: 'center', color: '#484f58', padding: '30px' }}>ยังไม่มีผู้เล่น</td></tr>
-                            )}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {playerList.map(([key, data]) => (
+                                    <tr key={key} style={{ background: selectedUser === key ? 'rgba(88,166,255,0.05)' : 'transparent' }} onClick={() => setSelectedUser(key)}>
+                                        <td style={td}>
+                                            <div style={{ color: '#58a6ff', fontWeight: 'bold' }}>{data.displayName}</div>
+                                            <div style={{ color: '#484f58', fontSize: '0.75rem' }}>@{key}</div>
+                                        </td>
+                                        <td style={{ ...td, color: data.money < 0 ? '#da3633' : '#3fb950', fontWeight: 'bold' }}>
+                                            ฿{Number(data.money || 0).toLocaleString()}
+                                        </td>
+                                        <td style={{ ...td, color: data.debt > 0 ? '#da3633' : '#484f58' }}>
+                                            {data.debt > 0 ? `฿${Number(data.debt).toLocaleString()}` : '—'}
+                                        </td>
+                                        <td style={td}>{data.fleetSize || 1}</td>
+                                        <td style={td}>{data.isIPO ? '✅' : '—'}</td>
+                                        <td style={{ ...td, color: '#8b949e', fontSize: '0.75rem' }}>{data.businessType || 'homestay'}</td>
+                                        <td style={td}>
+                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteUser(key); }}
+                                                style={{ background: '#da3633', color: 'white', border: 'none', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>
+                                                ลบ
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {playerList.length === 0 && (
+                                    <tr><td colSpan={7} style={{ ...td, textAlign: 'center', color: '#484f58', padding: '30px' }}>ยังไม่มีผู้เล่น</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div> {/* end scrollable table wrapper */}
                 </div>
-            </div>
 
-            {/* Stock Market Panel */}
+            </div>{/* end control+player flex row */}
+
+
             {playerStocks.length > 0 && (
-                <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '20px', overflowX: 'auto' }}>
+                <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '20px' }}>
                     <h2 style={{ margin: '0 0 12px', fontSize: '1rem' }}>
                         📈 หุ้นในตลาด ({playerStocks.length}) <span style={{ fontSize: '0.7rem', color: '#3fb950', fontWeight: 'normal' }}>● LIVE</span>
                     </h2>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr>
-                                <th style={th}>Symbol</th>
-                                <th style={th}>บริษัท</th>
-                                <th style={th}>ราคา</th>
-                                <th style={th}>เปลี่ยนแปลง</th>
-                                <th style={th}>Market Cap</th>
-                                <th style={th}>กำไรสุทธิ</th>
-                                <th style={th}>สุขภาพ</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {playerStocks.map((s, i) => {
-                                const change = s.prevPrice ? ((s.price - s.prevPrice) / s.prevPrice * 100) : 0;
-                                const isUp = change >= 0;
-                                return (
-                                    <tr key={i}>
-                                        <td style={{ ...td, color: '#58a6ff', fontWeight: 'bold' }}>{s.symbol}</td>
-                                        <td style={td}>{s.name}</td>
-                                        <td style={{ ...td, color: '#3fb950', fontWeight: 'bold' }}>฿{Number(s.price || 0).toLocaleString()}</td>
-                                        <td style={{ ...td, color: isUp ? '#3fb950' : '#da3633' }}>{isUp ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%</td>
-                                        <td style={td}>฿{Number(s.marketCap || 0).toLocaleString()}</td>
-                                        <td style={{ ...td, color: '#3fb950' }}>฿{Number(s.netProfit || 0).toLocaleString()}</td>
-                                        <td style={{ ...td, color: s.health === 'ดีเยี่ยม' ? '#3fb950' : s.health === 'เสี่ยง' ? '#da3633' : '#d29922' }}>{s.health || '—'}</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                    <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '400px' }}>
+                        <table style={{ width: '100%', minWidth: '600px', borderCollapse: 'collapse' }}>
+                            <thead style={{ position: 'sticky', top: 0, background: '#161b22', zIndex: 1 }}>
+                                <tr>
+                                    <th style={th}>Symbol</th>
+                                    <th style={th}>บริษัท</th>
+                                    <th style={th}>ราคา</th>
+                                    <th style={th}>เปลี่ยนแปลง</th>
+                                    <th style={th}>Market Cap</th>
+                                    <th style={th}>กำไรสุทธิ</th>
+                                    <th style={th}>สุขภาพ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {playerStocks.map((s, i) => {
+                                    const change = s.prevPrice ? ((s.price - s.prevPrice) / s.prevPrice * 100) : 0;
+                                    const isUp = change >= 0;
+                                    return (
+                                        <tr key={i}>
+                                            <td style={{ ...td, color: '#58a6ff', fontWeight: 'bold' }}>{s.symbol}</td>
+                                            <td style={td}>{s.name}</td>
+                                            <td style={{ ...td, color: '#3fb950', fontWeight: 'bold' }}>฿{Number(s.price || 0).toLocaleString()}</td>
+                                            <td style={{ ...td, color: isUp ? '#3fb950' : '#da3633' }}>{isUp ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%</td>
+                                            <td style={td}>฿{Number(s.marketCap || 0).toLocaleString()}</td>
+                                            <td style={{ ...td, color: '#3fb950' }}>฿{Number(s.netProfit || 0).toLocaleString()}</td>
+                                            <td style={{ ...td, color: s.health === 'ดีเยี่ยม' ? '#3fb950' : s.health === 'เสี่ยง' ? '#da3633' : '#d29922' }}>{s.health || '—'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
