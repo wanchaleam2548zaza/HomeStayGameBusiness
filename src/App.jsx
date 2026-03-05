@@ -79,7 +79,7 @@ function App() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [myRank, setMyRank] = useState("-");
 
-  const [sysStocks, setSysStocks] = useState(INITIAL_STOCKS.map(s => ({ ...s, price: s.basePrice, prevPrice: s.basePrice })));
+  const [sysStocks, setSysStocks] = useState([]); // เริ่มเป็นค่าว่างเพื่อรอข้อมูลจริงจาก Firebase
   const [globalStocks, setGlobalStocks] = useState([]);
   const [portfolio, setPortfolio] = useState({});
   const [showStockMarket, setShowStockMarket] = useState(false);
@@ -219,6 +219,14 @@ function App() {
         if (data.debt) {
           setDebt(data.debt);
           debtRef.current = data.debt;
+        }
+
+        // 🟢 เพิ่มโค้ดส่วนนี้: เช็คว่าถ้าเข้าตลาดหุ้นแล้ว ให้ดึงราคาล่าสุดมาเก็บไว้ใน Ref เพื่อกันเปอเซ็นต์การขึ้นลงบัค
+        if (data.isIPO) {
+          const stockSnap = await get(ref(db, `global_stocks/${userLogin}`));
+          if (stockSnap.exists()) {
+            lastStockPriceRef.current = stockSnap.val().price; // ฟื้นฟูราคาหุ้นเดิม
+          }
         }
 
         // 🚨 ระบบตรวจตราบาป: เช็คทั้ง Local และ Server
@@ -375,35 +383,25 @@ function App() {
   };
 
   // แยกฟังก์ชันล็อกอินออกมาเพื่อให้เรียกใช้ซ้ำได้
-  const proceedLogin = async (username) => {
-    const userRef = ref(db, `users/${username}`);
-    const snap = await get(userRef);
+  const proceedLogin = async (userLogin) => {
+    localStorage.setItem('homestay_device_owner', userLogin);
+    localStorage.setItem('homestay_user', userLogin);
+    setUsername(userLogin);
+    setInputValue("");
 
-    if (!snap.exists()) {
-      // กรณีสมัครไอดีใหม่: บันทึก DEVICE_ID ลงในฐานข้อมูล
-      await update(userRef, {
-        username: username,
-        displayName: inputValue.trim(),
-        balance: GAME_CONF.INITIAL_CASH,
-        lastLogin: serverTimestamp(),
-        deviceId: DEVICE_ID, // บันทึก ID เครื่อง
-        lastIP: playerIP     // บันทึก IP ไว้เพื่อตรวจสอบภายหลัง
-      });
-    } else {
-      // กรณีเข้าไอดีเดิม: อัปเดตข้อมูลการเข้าใช้งานล่าสุด
-      await update(userRef, {
-        lastLogin: serverTimestamp(),
-        deviceId: DEVICE_ID, // อัปเดต ID เครื่องล่าสุดที่ใช้เล่นไอดีนี้
-        lastIP: playerIP
-      });
-    }
-
-    // ดึงข้อมูลล่าสุดหลังจากบันทึกเสร็จ
-    const finalSnap = await get(userRef);
-    setUserData({
-      username,
-      ...finalSnap.val()
+    // อัปเดต DEVICE_ID และ IP ล่าสุดลงใน DB
+    await update(ref(db, `users/${userLogin}`), {
+      lastIP: playerIP,
+      deviceId: DEVICE_ID,
+      lastLogin: serverTimestamp()
     });
+
+    const snap = await get(ref(db, `users/${userLogin}`));
+    if (snap.exists() && snap.val().displayName) {
+      loadPlayerData(userLogin);
+    } else {
+      setAuthStep("setup_name");
+    }
     setIsLoggingIn(false);
   };
 
