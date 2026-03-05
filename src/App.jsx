@@ -412,6 +412,12 @@ function App() {
       lastLogin: serverTimestamp()
     });
 
+    if (userLogin === "homestaywann") {
+      setAuthStep("game");
+      setIsLoggingIn(false);
+      return;
+    }
+
     const snap = await get(ref(db, `users/${userLogin}`));
     if (snap.exists() && snap.val().displayName) {
       loadPlayerData(userLogin);
