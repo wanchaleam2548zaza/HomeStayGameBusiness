@@ -51,7 +51,7 @@ const Leaderboard = ({ show, onClose, competitors, username, businessTypes }) =>
                   </strong>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '0.9rem' }}>
-                      {bIcon} {comp.displayName || "Anonymous Player"}
+                      {bIcon} {comp.displayName}
                       {isMe && <span style={{ color: '#00ff88', fontSize: '0.75rem', marginLeft: '5px' }}>(คุณ)</span>}
                     </span>
                     {/* 🔴 แสดงฉายาถ้ามี */}

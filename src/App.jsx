@@ -150,7 +150,7 @@ function App() {
         businessType: stateRef.current.businessType,
         portfolio: stateRef.current.portfolio,
         isIPO: stateRef.current.isIPO,
-        displayName: stateRef.current.displayName || "Anonymous Player",
+        displayName: stateRef.current.displayName || "",
         // ดึงจาก stateRef เท่านั้นเพื่อป้องกันฉายาหาย
         inventory: stateRef.current.inventory || [],
         activeTitle: stateRef.current.activeTitle || null,
@@ -159,8 +159,10 @@ function App() {
       });
 
       if (stateRef.current.isIPO) {
+        // คำนวณมูลค่าจาก: (กำไร x 10) + (จำนวนสาขา x 50) + (เงินสดในมือ / 1000)
+        const cashValue = (moneyRef.current / 1000);
         const currentStockPrice = Math.max(10, Math.floor(
-          ((netProfit * 10) + (stateRef.current.fleetSize * 50)) * (stateRef.current.brandHype / 100)
+          ((netProfit * 10) + (stateRef.current.fleetSize * 50) + cashValue) * (stateRef.current.brandHype / 100)
         ));
         const prevPrice = lastStockPriceRef.current || currentStockPrice;
         await update(ref(db, `global_stocks/${username}`), {
@@ -257,16 +259,18 @@ function App() {
       const snap = await get(ref(db, 'users'));
       if (snap.exists()) {
         const data = snap.val();
-        const usersArray = Object.keys(data).map(key => {
-          const user = data[key];
-          return {
-            username: key,
-            displayName: user.displayName || user.playerName || "Anonymous Player",
-            money: user.money || 0,
-            businessType: user.businessType || 'homestay',
-            activeTitle: user.activeTitle || null
-          };
-        }).sort((a, b) => b.money - a.money);
+        const usersArray = Object.keys(data)
+          .filter(key => typeof data[key] === 'object' && data[key] !== null && (data[key].money !== undefined || data[key].displayName !== undefined))
+          .map(key => {
+            const user = data[key];
+            return {
+              username: key,
+              displayName: user.displayName || user.playerName || key,
+              money: user.money || 0,
+              businessType: user.businessType || 'homestay',
+              activeTitle: user.activeTitle || null
+            };
+          }).sort((a, b) => b.money - a.money);
         setCompetitors(usersArray);
         const rankIndex = usersArray.findIndex(u => u.username === username);
         setMyRank(rankIndex !== -1 ? rankIndex + 1 : "-");
@@ -591,8 +595,16 @@ function App() {
       }
     }, 1000);
 
-    return () => clearInterval(eventTimer);
+    return () => clearInterval(timer);
   }, [authStep, businessType, username]);
+
+  // 📢 ระบบแจ้งเตือน Event ใหม่
+  useEffect(() => {
+    if (currentEvent.msg && currentEvent.msg !== "ระบบพร้อมทำงาน..." && currentEvent.msg !== "ดำเนินการตามแผน..." && currentEvent.msg !== "หมดเวลาตัดสินใจ!") {
+      const eventLog = `📢 ข่าวด่วน: ${currentEvent.msg}`;
+      setLogs(prev => [eventLog, ...prev].slice(0, 15));
+    }
+  }, [currentEvent.msg]);
 
   // --- ระบบจัดการผู้ชนะประมูลอัตโนมัติ และการ Reset รอบใหม่ ---
   useEffect(() => {
@@ -878,6 +890,9 @@ function App() {
         <div className="stat-group">
           <span className="section-title">{bInfo.name} CEO (<span onClick={handleLogout} style={{ cursor: 'pointer', textDecoration: 'underline' }}>ออก</span>)</span>
           <h2 className="success" style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '1rem' }}>{displayName}</h2>
+          <div className="active-title-display" style={{ color: TITLES[activeTitle]?.color || '#aaa', fontSize: '0.7rem', marginTop: '2px', fontWeight: 'bold' }}>
+            {activeTitle ? `🏆 ${TITLES[activeTitle].name}` : "🌑 ยังไม่มีฉายา"}
+          </div>
         </div>
 
         <div className="stat-group" style={{ background: 'rgba(255, 255, 255, 0.05)', borderRadius: '15px', padding: '5px', position: 'relative' }}>
@@ -1038,7 +1053,10 @@ function App() {
                     return (
                       <div
                         key={id}
-                        onClick={() => handleTitleSelect({ target: { value: id } })}
+                        onClick={() => {
+                          setActiveTitle(id);
+                          update(ref(db, `users/${username}`), { activeTitle: id });
+                        }}
                         style={{
                           padding: '12px',
                           borderRadius: '12px',

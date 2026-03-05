@@ -86,25 +86,23 @@ const StockMarket = ({ show, onClose, money, marketStocks, portfolio, onBuy, onS
                     </div>
                   </div>
 
-                  {stock.isPlayer && (
-                    <div style={{
-                      margin: '10px 0',
-                      padding: '10px',
-                      background: 'rgba(0,0,0,0.3)',
-                      borderRadius: '10px',
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: '8px',
-                      fontSize: '0.65rem'
-                    }}>
-                      <div style={{ color: '#aaa' }}>Market Cap: <span style={{ color: '#fff' }}>฿{(stock.marketCap || 0).toLocaleString()}</span></div>
-                      <div style={{ color: '#aaa' }}>กำไรสุทธิ: <span style={{ color: '#00ff88' }}>฿{(stock.netProfit || 0).toLocaleString()}/s</span></div>
-                      <div style={{ color: '#aaa' }}>ความมั่นคง: <span style={{
-                        color: stock.health === 'ดีเยี่ยม' ? '#00ff88' : (stock.health === 'เสี่ยง' ? '#ff4757' : '#ffb300')
-                      }}>{stock.health || 'N/A'}</span></div>
-                      <div style={{ color: '#aaa' }}>ปันผลคาดการณ์: <span style={{ color: '#FFD700' }}>฿{stock.dividend || 0}</span></div>
-                    </div>
-                  )}
+                  <div style={{
+                    margin: '10px 0',
+                    padding: '10px',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '10px',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '8px',
+                    fontSize: '0.65rem'
+                  }}>
+                    <div style={{ color: '#aaa' }}>Market Cap: <span style={{ color: '#fff' }}>฿{(stock.marketCap || 0).toLocaleString()}</span></div>
+                    <div style={{ color: '#aaa' }}>กำไรสุทธิ: <span style={{ color: '#00ff88' }}>฿{(stock.netProfit || 0).toLocaleString()}/s</span></div>
+                    <div style={{ color: '#aaa' }}>ความมั่นคง: <span style={{
+                      color: stock.health === 'ดีเยี่ยม' ? '#00ff88' : (stock.health === 'เสี่ยง' ? '#ff4757' : '#ffb300')
+                    }}>{stock.health || 'N/A'}</span></div>
+                    <div style={{ color: '#aaa' }}>ปันผลคาดการณ์: <span style={{ color: '#FFD700' }}>฿{stock.dividend || 0}</span></div>
+                  </div>
 
                   {myStock.shares > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#aaa', padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '10px' }}>
