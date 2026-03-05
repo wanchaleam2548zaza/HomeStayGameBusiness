@@ -59,6 +59,14 @@ const AdminDashboard = ({ username, onLogout }) => {
             await remove(ref(db, 'users'));
             await remove(ref(db, 'global_stocks'));
             await remove(ref(db, 'global_auction'));
+            // เขียนทับด้วย object ว่างๆ คั่นกลาง เพื่อให้ client listener ทำงานได้ถูกต้อง
+            await update(ref(db, '/'), {
+                users: { _placeholder: true },
+                global_stocks: { _placeholder: true }
+            });
+            await remove(ref(db, 'users/_placeholder'));
+            await remove(ref(db, 'global_stocks/_placeholder'));
+
             addLog("🔴 [SYSTEM ALERT] ข้อมูลทั้งหมดถูกรีเซ็ตแล้ว!");
             alert("✅ รีเซ็ตข้อมูลเซิร์ฟเวอร์เสร็จสมบูรณ์");
         } catch (error) {
@@ -70,8 +78,12 @@ const AdminDashboard = ({ username, onLogout }) => {
     const handleDeleteUser = async (userKey) => {
         if (!window.confirm(`ลบผู้เล่น ${userKey} ยืนยัน?`)) return;
         try {
-            await remove(ref(db, `users/${userKey}`));
-            await remove(ref(db, `global_stocks/${userKey}`));
+            // ลบผู้ล่นและเขียนค่า null ทับอย่างเจาะจงเพื่อทริกเกอร์ onValue ที่ฝั่ง client
+            await update(ref(db, '/'), {
+                [`users/${userKey}`]: null,
+                [`global_stocks/${userKey}`]: null
+            });
+
             addLog(`🗑️ ลบผู้เล่น ${userKey} ออกจากระบบ`);
         } catch (err) {
             console.error(err);
