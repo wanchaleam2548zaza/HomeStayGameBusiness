@@ -376,7 +376,13 @@ function App() {
     const saved = localStorage.getItem('homestay_user');
     if (saved) {
       localStorage.setItem('homestay_device_owner', saved);
-      loadPlayerData(saved);
+      // 🛡️ Admin ข้ามการโหลดข้อมูล Player ปกติ
+      if (saved === 'homestaywann') {
+        setUsername(saved);
+        setAuthStep("game");
+      } else {
+        loadPlayerData(saved);
+      }
     } else { setAuthStep("login"); }
   }, []);
 
@@ -843,37 +849,47 @@ function App() {
     }
   }, [currentEvent.msg]);
 
-  // 🎁 ระบบรับเงินจาก Admin (adminGift) + แสดงข้อความจาก Admin
-  const [adminPopup, setAdminPopup] = React.useState(null); // { amount, message }
+  // 🎁 ระบบรับเงินจาก Admin (adminGift)
+  const [adminPopup, setAdminPopup] = React.useState(null);
   useEffect(() => {
-    if (authStep !== "game" || !username) return;
-    const giftRef = ref(db, `users/${username}/adminGift`);
-    const unsubscribe = onValue(giftRef, async (snap) => {
+    if (authStep !== "game" || !username || username === "homestaywann") return;
+
+    // 💰 Step 1: ฟัง adminGift — รับเงินทันทีเมื่อ Admin โอน
+    const giftUnsub = onValue(ref(db, `users/${username}/adminGift`), async (snap) => {
       if (!snap.exists()) return;
       const giftAmount = Number(snap.val());
       if (!giftAmount || giftAmount <= 0) return;
 
-      // อ่านข้อความจาก Admin (ถ้ามี)
       const msgSnap = await get(ref(db, `users/${username}/adminMessage`));
       const message = msgSnap.exists() ? msgSnap.val() : null;
 
-      // รับเงินเข้ากระเป๋า
+      // บวกเงินทันที
       moneyRef.current += giftAmount;
       setMoney(Math.floor(moneyRef.current));
 
-      // เคลียร์ adminGift + adminMessage ทันทีเพื่อป้องกันรับซ้ำ + บันทึกเงินใหม่
+      // เคลียร์ adminGift และบันทึก adminGiftPending ไว้ให้ player เห็น popup
+      // (popup จะค้างอยู่จนกว่า player จะกด acknowledge)
       await update(ref(db, `users/${username}`), {
         money: Math.floor(moneyRef.current),
         adminGift: null,
-        adminMessage: null
+        adminMessage: null,
+        adminGiftPending: { amount: giftAmount, message: message || null, ts: Date.now() }
       });
-
-      // แสดง Popup จาก Admin
-      setAdminPopup({ amount: giftAmount, message });
-      setLogs(prev => [`🎁 Admin เสกเงินให้คุณ +฿${giftAmount.toLocaleString()}!`, ...prev].slice(0, 15));
     });
-    return () => unsubscribe();
+
+    // 📬 Step 2: ฟัง adminGiftPending — แสดง popup ค้างไว้จนกว่าจะกดรับ
+    const pendingUnsub = onValue(ref(db, `users/${username}/adminGiftPending`), (snap) => {
+      if (snap.exists()) {
+        const data = snap.val();
+        setAdminPopup({ amount: data.amount, message: data.message });
+      } else {
+        setAdminPopup(null);
+      }
+    });
+
+    return () => { giftUnsub(); pendingUnsub(); };
   }, [authStep, username]);
+
 
   // 🔄 ระบบ Force Refresh จาก Admin
   useEffect(() => {
@@ -891,10 +907,22 @@ function App() {
     });
     return () => unsubscribe();
   }, [authStep, username]);
-
+  // 💰 Realtime money listener — อัปเดต UI ทันทีเมื่อ DB เปลี่ยน
+  useEffect(() => {
+    if (authStep !== "game" || !username || username === "homestaywann") return;
+    const moneyDbRef = ref(db, `users/${username}/money`);
+    const unsubscribe = onValue(moneyDbRef, (snap) => {
+      if (!snap.exists()) return;
+      const dbMoney = Math.floor(Number(snap.val()));
+      if (Math.abs(dbMoney - Math.floor(moneyRef.current)) > 1) {
+        moneyRef.current = dbMoney;
+        setMoney(dbMoney);
+      }
+    });
+    return () => unsubscribe();
+  }, [authStep, username]);
 
   // --- ระบบ sync ข้อมูลประมูล (เพื่ออัปเดต UI เท่านั้น) ---
-  // เก็บข้อมูลล่าสุดจาก Firebase ใน ref เพื่อให้ interval ข้างล่างอ่านได้ทุกวินาที
   const latestAuctionDataRef = useRef(null);
   useEffect(() => {
     if (authStep !== "game" || !username) return;
@@ -1640,10 +1668,10 @@ function App() {
           </div>
         </div>
       )}
-      {/* 🎁 Admin Gift Popup */}
+      {/* 🎁 Admin Gift Popup — ปิดได้เฉพาะกดปุ่มเท่านั้น */}
       {adminPopup && (
-        <div className="glass-overlay" style={{ zIndex: 20000 }} onClick={() => setAdminPopup(null)}>
-          <div className="glass-panel" style={{ maxWidth: '360px', width: '90%', textAlign: 'center', border: '2px solid #FFD700', padding: '30px', borderRadius: '20px' }} onClick={e => e.stopPropagation()}>
+        <div className="glass-overlay" style={{ zIndex: 20000 }}>
+          <div className="glass-panel" style={{ maxWidth: '360px', width: '90%', textAlign: 'center', border: '2px solid #FFD700', padding: '30px', borderRadius: '20px' }}>
             <div style={{ fontSize: '3rem', marginBottom: '10px' }}>🎁</div>
             <h3 style={{ color: '#FFD700', margin: '0 0 10px' }}>ของขวัญจาก Admin!</h3>
             <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00ff88', margin: '10px 0' }}>
@@ -1655,7 +1683,11 @@ function App() {
                 <p style={{ color: '#fff', margin: 0, fontStyle: 'italic' }}>"{adminPopup.message}"</p>
               </div>
             )}
-            <button className="primary-btn" onClick={() => setAdminPopup(null)} style={{ marginTop: '15px', width: '100%' }}>
+            <button className="primary-btn" onClick={async () => {
+              // ล้าง pending ออกจาก DB เพื่อไม่ให้ popup กลับมาอีก
+              await update(ref(db, `users/${username}`), { adminGiftPending: null });
+              setLogs(prev => [`🎁 รับเงินจาก Admin +฿${adminPopup.amount.toLocaleString()} สำเร็จ!`, ...prev].slice(0, 15));
+            }} style={{ marginTop: '15px', width: '100%' }}>
               รับแล้ว ขอบคุณ! 🙏
             </button>
           </div>

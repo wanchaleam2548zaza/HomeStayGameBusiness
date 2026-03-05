@@ -11,6 +11,7 @@ const AdminDashboard = ({ username, onLogout }) => {
     const [addMoneyAmount, setAddMoneyAmount] = useState(1000000);
     const [adminMessage, setAdminMessage] = useState('');
     const [lastUpdated, setLastUpdated] = useState(new Date());
+    const [searchQuery, setSearchQuery] = useState('');
 
     if (username !== 'homestaywann') {
         return <div style={{ color: 'red', textAlign: 'center', padding: '50px' }}>❌ ACCESS DENIED</div>;
@@ -69,6 +70,27 @@ const AdminDashboard = ({ username, onLogout }) => {
         }
     };
 
+    const handleSeizeMoney = async () => {
+        if (!selectedUser) return alert("เลือกผู้เล่นก่อน");
+        if (!window.confirm(`⚠️ ยึดเงิน ฿${Number(addMoneyAmount).toLocaleString()} จาก ${users[selectedUser]?.displayName}?`)) return;
+        const userRef = ref(db, `users/${selectedUser}`);
+        try {
+            const snap = await get(userRef);
+            if (snap.exists()) {
+                const currentMoney = Number(snap.val().money || 0);
+                const newMoney = currentMoney - Number(addMoneyAmount);
+                await update(userRef, { money: newMoney });
+                addLog(`🚨 ยึดเงินจาก ${selectedUser}: -฿${Number(addMoneyAmount).toLocaleString()} (เหลือ ฿${newMoney.toLocaleString()})`);
+                alert(`✅ ยึดเงินสำเร็จ!`);
+            } else {
+                alert("ไม่พบผู้เล่นนี้");
+            }
+        } catch (err) {
+            console.error(err);
+            alert("เกิดข้อผิดพลาด");
+        }
+    };
+
     const handleForceRefresh = async () => {
         if (!window.confirm("🔄 ยืนยันการ Refresh ทุก Client?")) return;
         try {
@@ -115,12 +137,38 @@ const AdminDashboard = ({ username, onLogout }) => {
         }
     };
 
+    const handleDeleteStock = async (ownerKey, stockData) => {
+        const name = stockData?.name || stockData?.symbol || ownerKey;
+        if (!window.confirm(`ลบหุ้น "${name}" (${stockData?.symbol}) ออกจากตลาดหุ้น?`)) return;
+        try {
+            await update(ref(db, '/'), {
+                [`global_stocks/${ownerKey}`]: null,
+                [`users/${ownerKey}/isIPO`]: false
+            });
+            addLog(`📉 ลบหุ้น ${stockData?.symbol} (${name}) ออกจากตลาดหุ้นแล้ว`);
+        } catch (err) {
+            console.error(err);
+            alert('เกิดข้อผิดพลาด');
+        }
+    };
+
     // Stats คำนวณ
     const playerList = Object.entries(users).filter(([, d]) => d?.displayName);
     const totalMoney = playerList.reduce((s, [, d]) => s + (Number(d.money) || 0), 0);
     const totalDebt = playerList.reduce((s, [, d]) => s + (Number(d.debt) || 0), 0);
     const ipoCount = playerList.filter(([, d]) => d.isIPO).length;
-    const playerStocks = Object.values(globalStocks).filter(s => s?.isPlayer);
+    const playerStocks = Object.entries(globalStocks)
+        .filter(([, s]) => s?.isPlayer)
+        .map(([ownerKey, s]) => ({ ...s, ownerKey }));
+
+    // 🔍 Filter by search
+    const q = searchQuery.toLowerCase();
+    const filteredPlayers = playerList.filter(([k, d]) =>
+        !q || k.toLowerCase().includes(q) || (d.displayName || '').toLowerCase().includes(q)
+    );
+    const filteredStocks = playerStocks.filter(s =>
+        !q || (s.symbol || '').toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q) || (s.ownerKey || '').toLowerCase().includes(q)
+    );
 
     const box = { background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '15px', textAlign: 'center' };
     const th = { padding: '8px 12px', textAlign: 'left', color: '#8b949e', fontWeight: 'normal', fontSize: '0.8rem', borderBottom: '1px solid #21262d', whiteSpace: 'nowrap' };
@@ -183,7 +231,14 @@ const AdminDashboard = ({ username, onLogout }) => {
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                         <input type="number" value={addMoneyAmount} onChange={(e) => setAddMoneyAmount(e.target.value)}
                             style={{ flex: 1, padding: '8px', background: '#010409', color: '#fff', border: '1px solid #30363d', borderRadius: '6px' }} placeholder="จำนวนเงิน" />
-                        <button onClick={handleAddMoney} style={{ background: '#2ea043', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>เสกเงิน</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                        <button onClick={handleAddMoney} style={{ flex: 1, background: '#2ea043', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            🎁 เสกเงิน
+                        </button>
+                        <button onClick={handleSeizeMoney} style={{ flex: 1, background: '#da3633', color: 'white', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+                            🚨 ยึดเงิน
+                        </button>
                     </div>
 
                     <input type="text" value={adminMessage} onChange={(e) => setAdminMessage(e.target.value)}
@@ -205,9 +260,18 @@ const AdminDashboard = ({ username, onLogout }) => {
 
                 {/* Player Table */}
                 <div style={{ flex: '2 1 500px', background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '20px', overflow: 'hidden' }}>
-                    <h2 style={{ borderBottom: '1px solid #30363d', paddingBottom: '10px', marginTop: 0, fontSize: '1rem' }}>
-                        👥 ผู้เล่น ({playerList.length}) <span style={{ fontSize: '0.7rem', color: '#3fb950', fontWeight: 'normal' }}>● LIVE</span>
-                    </h2>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #30363d', paddingBottom: '10px', marginBottom: '10px' }}>
+                        <h2 style={{ margin: 0, fontSize: '1rem' }}>
+                            👥 ผู้เล่น ({filteredPlayers.length}/{playerList.length}) <span style={{ fontSize: '0.7rem', color: '#3fb950', fontWeight: 'normal' }}>● LIVE</span>
+                        </h2>
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            placeholder="🔍 ค้นหาชื่อ / username / หุ้น..."
+                            style={{ padding: '6px 10px', background: '#010409', color: '#fff', border: '1px solid #30363d', borderRadius: '6px', fontSize: '0.8rem', width: '220px' }}
+                        />
+                    </div>
                     <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '300px' }}>
                         <table style={{ width: '100%', minWidth: '550px', borderCollapse: 'collapse' }}>
                             <thead style={{ position: 'sticky', top: 0, background: '#161b22', zIndex: 1 }}>
@@ -222,8 +286,8 @@ const AdminDashboard = ({ username, onLogout }) => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {playerList.map(([key, data]) => (
-                                    <tr key={key} style={{ background: selectedUser === key ? 'rgba(88,166,255,0.05)' : 'transparent' }} onClick={() => setSelectedUser(key)}>
+                                {filteredPlayers.map(([key, data]) => (
+                                    <tr key={key} style={{ background: selectedUser === key ? 'rgba(88,166,255,0.08)' : 'transparent', cursor: 'pointer' }} onClick={() => setSelectedUser(key)}>
                                         <td style={td}>
                                             <div style={{ color: '#58a6ff', fontWeight: 'bold' }}>{data.displayName}</div>
                                             <div style={{ color: '#484f58', fontSize: '0.75rem' }}>@{key}</div>
@@ -245,8 +309,10 @@ const AdminDashboard = ({ username, onLogout }) => {
                                         </td>
                                     </tr>
                                 ))}
-                                {playerList.length === 0 && (
-                                    <tr><td colSpan={7} style={{ ...td, textAlign: 'center', color: '#484f58', padding: '30px' }}>ยังไม่มีผู้เล่น</td></tr>
+                                {filteredPlayers.length === 0 && (
+                                    <tr><td colSpan={7} style={{ ...td, textAlign: 'center', color: '#484f58', padding: '30px' }}>
+                                        {searchQuery ? `ไม่พบผู้เล่นที่ตรงกับ "${searchQuery}"` : 'ยังไม่มีผู้เล่น'}
+                                    </td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -259,10 +325,11 @@ const AdminDashboard = ({ username, onLogout }) => {
             {playerStocks.length > 0 && (
                 <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '20px' }}>
                     <h2 style={{ margin: '0 0 12px', fontSize: '1rem' }}>
-                        📈 หุ้นในตลาด ({playerStocks.length}) <span style={{ fontSize: '0.7rem', color: '#3fb950', fontWeight: 'normal' }}>● LIVE</span>
+                        📈 หุ้นในตลาด ({filteredStocks.length}/{playerStocks.length}) <span style={{ fontSize: '0.7rem', color: '#3fb950', fontWeight: 'normal' }}>● LIVE</span>
+                        {searchQuery && <span style={{ fontSize: '0.75rem', color: '#8b949e', marginLeft: '8px' }}>(กรอง: "{searchQuery}")</span>}
                     </h2>
                     <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '400px' }}>
-                        <table style={{ width: '100%', minWidth: '600px', borderCollapse: 'collapse' }}>
+                        <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse' }}>
                             <thead style={{ position: 'sticky', top: 0, background: '#161b22', zIndex: 1 }}>
                                 <tr>
                                     <th style={th}>Symbol</th>
@@ -272,10 +339,11 @@ const AdminDashboard = ({ username, onLogout }) => {
                                     <th style={th}>Market Cap</th>
                                     <th style={th}>กำไรสุทธิ</th>
                                     <th style={th}>สุขภาพ</th>
+                                    <th style={th}></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {playerStocks.map((s, i) => {
+                                {filteredStocks.map((s, i) => {
                                     const change = s.prevPrice ? ((s.price - s.prevPrice) / s.prevPrice * 100) : 0;
                                     const isUp = change >= 0;
                                     return (
@@ -287,9 +355,20 @@ const AdminDashboard = ({ username, onLogout }) => {
                                             <td style={td}>฿{Number(s.marketCap || 0).toLocaleString()}</td>
                                             <td style={{ ...td, color: '#3fb950' }}>฿{Number(s.netProfit || 0).toLocaleString()}</td>
                                             <td style={{ ...td, color: s.health === 'ดีเยี่ยม' ? '#3fb950' : s.health === 'เสี่ยง' ? '#da3633' : '#d29922' }}>{s.health || '—'}</td>
+                                            <td style={td}>
+                                                <button onClick={() => handleDeleteStock(s.ownerKey, s)}
+                                                    style={{ background: '#da3633', color: 'white', border: 'none', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                                                    🗑️ ลบหุ้น
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })}
+                                {filteredStocks.length === 0 && (
+                                    <tr><td colSpan={8} style={{ ...td, textAlign: 'center', color: '#484f58', padding: '20px' }}>
+                                        {searchQuery ? `ไม่พบหุ้นที่ตรงกับ "${searchQuery}"` : 'ยังไม่มีหุ้นในตลาด'}
+                                    </td></tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
