@@ -423,18 +423,19 @@ function App() {
     setUsername(userLogin);
     setInputValue("");
 
-    // อัปเดต DEVICE_ID และ IP ล่าสุดลงใน DB
-    await update(ref(db, `users/${userLogin}`), {
-      lastIP: playerIP,
-      deviceId: DEVICE_ID,
-      lastLogin: serverTimestamp()
-    });
-
+    // 🛡️ Admin ข้ามทุกอย่าง ไม่สร้าง node ใน DB เพื่อป้องกันบั๊กหน้า setup_name
     if (userLogin === "homestaywann") {
       setAuthStep("game");
       setIsLoggingIn(false);
       return;
     }
+
+    // อัปเดต DEVICE_ID และ IP ล่าสุดลงใน DB (เฉพาะ Player ปกติ)
+    await update(ref(db, `users/${userLogin}`), {
+      lastIP: playerIP,
+      deviceId: DEVICE_ID,
+      lastLogin: serverTimestamp()
+    });
 
     const snap = await get(ref(db, `users/${userLogin}`));
     if (snap.exists() && snap.val().displayName) {
