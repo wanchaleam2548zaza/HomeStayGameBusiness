@@ -12,6 +12,7 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
     // ตรวจสอบว่าผู้เล่นมีฉายานี้อยู่แล้วหรือไม่
     const alreadyOwned = inventory && inventory.includes(item?.id);
 
+    // ดึงข้อมูลการประมูลแบบ Real-time
     useEffect(() => {
         if (!item) return;
         const auctionRef = ref(db, `global_auction`);
@@ -20,12 +21,11 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
                 const data = snap.val();
                 setCurrentBid(data.price || 0);
                 setHighestBidder(data.bidder || 'ไม่มี');
-                // ถ้ามีคนประมูลแล้ว ให้ตั้งราคาถัดไป +10,000 แต่ถ้ายังไม่มี ให้ใช้ minBid จากข้อมูล
                 setBidAmount(data.price > 0 ? data.price + 10000 : item.minBid);
             } else {
                 setCurrentBid(0);
                 setHighestBidder('ไม่มี');
-                setBidAmount(item.minBid); // ใช้ราคาขั้นต่ำจากไฟล์ config
+                setBidAmount(item.minBid);
             }
         });
         return () => unsubscribe();

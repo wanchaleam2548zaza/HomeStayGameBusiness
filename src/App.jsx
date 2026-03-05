@@ -41,21 +41,23 @@ const CustomTooltip = ({ active, payload }) => {
 const CustomDot = (props) => (props.payload.isLoss ? <circle cx={props.cx} cy={props.cy} r={5} fill="#ff4757" stroke="#fff" strokeWidth={2} /> : null);
 
 const BusinessChart = ({ data }) => (
-  <ResponsiveContainer width="100%" height="100%">
-    <AreaChart data={data}>
-      <defs>
-        <linearGradient id="waterWave" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="5%" stopColor="#00E1FF" stopOpacity={0.8} />
-          <stop offset="95%" stopColor="#0055FF" stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <XAxis dataKey="time" hide />
-      <YAxis domain={['dataMin - 100', 'auto']} hide />
-      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255, 255, 255, 0.1)', strokeWidth: 2 }} />
-      <Area type="monotone" dataKey="value" stroke="#00E1FF" strokeWidth={3} fillOpacity={1} fill="url(#waterWave)" dot={<CustomDot />} activeDot={{ r: 6, fill: '#fff', stroke: '#00E1FF', strokeWidth: 2 }} isAnimationActive={false} />
-      <Brush dataKey="time" height={25} stroke="rgba(0, 225, 255, 0.4)" fill="rgba(0,0,0,0.6)" travellerWidth={12} tickFormatter={() => ''} />
-    </AreaChart>
-  </ResponsiveContainer>
+  <div style={{ width: '100%', flex: 1, minHeight: 0, minWidth: 0 }}>
+    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+      <AreaChart data={data}>
+        <defs>
+          <linearGradient id="waterWave" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#00E1FF" stopOpacity={0.8} />
+            <stop offset="95%" stopColor="#0055FF" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis dataKey="time" hide />
+        <YAxis domain={['dataMin - 100', 'auto']} hide />
+        <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255, 255, 255, 0.1)', strokeWidth: 2 }} />
+        <Area type="monotone" dataKey="value" stroke="#00E1FF" strokeWidth={3} fillOpacity={1} fill="url(#waterWave)" dot={<CustomDot />} activeDot={{ r: 6, fill: '#fff', stroke: '#00E1FF', strokeWidth: 2 }} isAnimationActive={false} />
+        <Brush dataKey="time" height={25} stroke="rgba(0, 225, 255, 0.4)" fill="rgba(0,0,0,0.6)" travellerWidth={12} tickFormatter={() => ''} />
+      </AreaChart>
+    </ResponsiveContainer>
+  </div>
 );
 
 function App() {
@@ -116,6 +118,7 @@ function App() {
   const lastStockPriceRef = useRef(0);
   const lastEventBucket = useRef(parseInt(localStorage.getItem('homestay_last_bucket_v2')) || 0);
   const lastExpandTime = useRef(Date.now());
+  const auctionProcessedRef = useRef(null); // เก็บ bucket ที่ประมวลผลรางวัลไปแล้ว (กัน double reward)
 
   useEffect(() => {
     fetch('https://api.ipify.org?format=json')
@@ -174,11 +177,18 @@ function App() {
       });
 
       if (stateRef.current.isIPO) {
-        // คำนวณมูลค่าจาก: (กำไร x 10) + (จำนวนสาขา x 50) + (เงินสดในมือ / 1000)
         const cashValue = (moneyRef.current / 1000);
-        const currentStockPrice = Math.max(10, Math.floor(
+        const rawStockPrice = Math.max(10, Math.floor(
           ((netProfit * 10) + (stateRef.current.fleetSize * 50) + cashValue) * (stateRef.current.brandHype / 100)
         ));
+
+        // 🛡️ ดึง ipoPrice จาก DB ถ้ายังไม่มีก็บันทึกครั้งแรก
+        const existingSnap = await get(ref(db, `global_stocks/${username}/ipoPrice`));
+        const ipoPrice = existingSnap.exists() ? existingSnap.val() : rawStockPrice;
+
+        // 🛡️ Cap ราคา: ไม่ให้เกิน 3x ของ ipoPrice (กัน pump)
+        const currentStockPrice = Math.min(rawStockPrice, ipoPrice * 3);
+
         const prevPrice = lastStockPriceRef.current || currentStockPrice;
         await update(ref(db, `global_stocks/${username}`), {
           symbol: username.substring(0, 4).toUpperCase(),
@@ -187,11 +197,11 @@ function App() {
           prevPrice: prevPrice,
           owner: username,
           isPlayer: true,
-          // --- รายละเอียดเพิ่มเติมที่เพิ่มเข้าไป ---
-          marketCap: currentStockPrice * 10000, // สมมติว่ามีหุ้นทั้งหมด 10,000 หุ้น
-          netProfit: Math.floor(netProfit), // กำไรต่อวินาที
-          health: reputation > 50 ? "ดีเยี่ยม" : (reputation > 20 ? "ปกติ" : "เสี่ยง"), // สภาพคล่องบริษัท
-          dividend: Math.floor(netProfit * 0.05) // ปันผลสมมติ 5% ของกำไร
+          ipoPrice: ipoPrice,           // 🛡️ บันทึกราคา IPO ไว้เป็น reference
+          marketCap: currentStockPrice * 10000,
+          netProfit: Math.floor(netProfit),
+          health: reputation > 50 ? "ดีเยี่ยม" : (reputation > 20 ? "ปกติ" : "เสี่ยง"),
+          dividend: Math.floor(netProfit * 0.05)
         });
         lastStockPriceRef.current = currentStockPrice;
       }
@@ -492,34 +502,41 @@ function App() {
   const handleBankruptcy = async () => {
     if (!window.confirm("⚠️ ยืนยันการยื่นล้มละลาย? หนี้จะหายไปแต่กิจการจะถูกรีเซ็ตทั้งหมด!")) return;
 
-    // 1. กำหนดค่าเริ่มต้นใหม่ (เริ่มต้นใหม่จากศูนย์)
-    const startingMoney = 2000; // เงินก้อนสุดท้ายสำหรับตั้งตัว
+    const startingMoney = 2000;
     moneyRef.current = startingMoney;
     setMoney(startingMoney);
-
     setDebt(0);
     debtRef.current = 0;
+    setFleetSize(1);
+    setReputation(5);
+    setBrandHype(50);
+    setIsIPO(false);
 
-    setFleetSize(1); // รีเซ็ตขนาดธุรกิจเหลือ 1
-    setReputation(5); // เสียชื่อเสียงจากการล้มละลาย
-    setBrandHype(50); // Hype ร่วง
-    setIsIPO(false); // ถอดออกจากตลาดหลักทรัพย์
+    // 🛡️ ล้างพอร์ตโฟลิโอทั้งหมด (ปัญหาหลัก!)
+    setPortfolio({});
 
-    // 2. ลบข้อมูลหุ้นออกจากตลาดโลก
     try {
       if (username) {
+        // ลบหุ้นของเราในตลาดโลก
         await remove(ref(db, `global_stocks/${username}`));
+
+        // ล้าง Portfolio ใน DB ด้วย (portfolio: null = ลบ node)
+        await update(ref(db, `users/${username}`), {
+          portfolio: {},
+          isIPO: false,
+          fleetSize: 1,
+          reputation: 5,
+          brandHype: 50,
+          money: startingMoney,
+          debt: 0
+        });
       }
 
-      // 3. บันทึก Log
       const newLog = "🚨 คุณได้ยื่นล้มละลาย! หนี้สินถูกล้างออกแล้ว เริ่มต้นชีวิตใหม่อีกครั้ง";
       setLogs(prev => [newLog, ...prev].slice(0, 15));
 
-      // 4. อัปเดต Database ทันที
-      await syncDatabase(startingMoney);
-
-      setShowLoanModal(false); // ปิดหน้าต่างธนาคาร
-      alert("ยื่นล้มละลายสำเร็จ! ระบบได้ล้างหนี้และรีเซ็ตธุรกิจของคุณแล้ว");
+      setShowLoanModal(false);
+      alert("ยื่นล้มละลายสำเร็จ! ระบบได้ล้างหนี้, Portfolio และรีเซ็ตธุรกิจของคุณแล้ว");
     } catch (err) {
       console.error("Bankruptcy Error:", err);
     }
@@ -682,29 +699,35 @@ function App() {
     }
   }, [currentEvent.msg]);
 
-  // --- ระบบจัดการผู้ชนะประมูลอัตโนมัติ และการ Reset รอบใหม่ ---
+  // --- ระบบจัดการผู้ชนะประมูล: ใช้ onValue listener แบบ Real-time แทน ---
   useEffect(() => {
-    if (authStep !== "game") return;
+    if (authStep !== "game" || !username) return;
 
-    const processAuctionEnd = async () => {
-      const auctionRef = ref(db, `global_auction`);
-      const snap = await get(auctionRef);
+    const auctionRef = ref(db, `global_auction`);
 
+    const unsubscribe = onValue(auctionRef, async (snap) => {
       if (!snap.exists()) return;
       const auctionData = snap.val();
 
-      // 🎁 ขั้นที่ 1: มอบรางวัลผู้ชนะ (ถ้าเป็นเราและยังไม่ได้จ่าย)
-      // ต้องมี itemId และ bidder เป็นชื่อเรา และ isPaid ยังเป็น false
+      // ตรวจสอบ: ช่วงเวลานอกประมูล และมีคนชนะประมูล
+      const now = Date.now();
+      const timeLeftInBucket = 100 - (Math.floor(now / 1000) % 100);
+      const isOutsideAuction = timeLeftInBucket > 10;
+
+      // 🎁 มอบรางวัลทันทีเมื่อ: เป็นเราชนะ + ยังไม่จ่าย + พ้นช่วงประมูลแล้ว
+      const currentBucket = Math.floor(Date.now() / 100000);
       if (
         auctionData.bidder === username &&
         !auctionData.isPaid &&
-        auctionData.itemId
+        auctionData.itemId &&
+        isOutsideAuction &&
+        auctionProcessedRef.current !== currentBucket // ยังไม่ได้ประมวลผลรอบนี้
       ) {
-        // ✅ Mark เป็น isPaid ทันทีเพื่อกัน Race Condition (ป้องกันหักเงินซ้ำ)
+        auctionProcessedRef.current = currentBucket; // Mark ว่าประมวลผลรอบนี้แล้ว
+        // ✅ Mark isPaid ก่อนเลยเพื่อกัน Double-trigger
         await update(auctionRef, { isPaid: true });
 
         if (moneyRef.current >= auctionData.price) {
-          // กรณีเงินพอ: หักเงิน + มอบไอเทม
           moneyRef.current -= auctionData.price;
           setMoney(Math.floor(moneyRef.current));
 
@@ -723,7 +746,6 @@ function App() {
 
           setLogs(prev => [`🎊 ชนะประมูล! ได้รับ [${TITLES[newTitleId]?.name || 'ฉายาใหม่'}] หักเงิน ฿${auctionData.price.toLocaleString()}`, ...prev].slice(0, 15));
         } else {
-          // กรณีเงินไม่พอ: โดนค่าปรับ 20%
           const penaltyAmount = Math.floor(auctionData.price * 0.2);
           moneyRef.current -= penaltyAmount;
           setMoney(Math.floor(moneyRef.current));
@@ -732,24 +754,24 @@ function App() {
             money: Math.floor(moneyRef.current)
           });
 
-          setLogs(prev => [`🚫 ประมูลล้มเหลว! เงินไม่พอจ่าย โดนค่าปรับผิดนัด ฿${penaltyAmount.toLocaleString()} (20%)`, ...prev].slice(0, 15));
+          setLogs(prev => [`🚫 ประมูลล้มเหลว! เงินไม่พอจ่าย โดนค่าปรับ ฿${penaltyAmount.toLocaleString()} (20%)`, ...prev].slice(0, 15));
         }
       }
 
-      // � ขั้นที่ 2: รีเซ็ตรอบใหม่ (แยกออกจากการมอบรางวัล)
-      if (auctionData.lastResetBucket !== currentBucketState) {
+      // 🔄 รีเซ็ตรอบใหม่: คนแรกที่เจอ bucket ใหม่ทำหน้าที่รีเซ็ต
+      if (auctionData.lastResetBucket !== currentBucket && isOutsideAuction) {
         await update(auctionRef, {
           bidder: "ไม่มี",
           price: 0,
           isPaid: false,
           itemId: null,
-          lastResetBucket: currentBucketState
+          lastResetBucket: currentBucket
         });
       }
-    };
+    });
 
-    processAuctionEnd();
-  }, [currentBucketState]);
+    return () => unsubscribe();
+  }, [authStep, username]);
 
   // --- ระบบ Countdown สำหรับ MARKET และ AUCTION ---
   useEffect(() => {
@@ -763,13 +785,13 @@ function App() {
       const isPhase = timeLeftInBucket <= 10;
       setIsAuctionPhase(isPhase);
 
-      // แก้ไข: ให้เปิดหน้าต่างเฉพาะวินาทีที่ 10 เท่านั้น ไม่ใช่เปิดทุกวินาทีที่ <= 10
+      // เปิดหน้าต่างเฉพาะวินาทีที่ 10 เท่านั้น
       if (timeLeftInBucket === 10) {
         setShowAuction(true);
       }
 
-      // ปิดหน้าต่างอัตโนมัติเมื่อจบการประมูล (วินาทีที่ 100/0)
-      if (timeLeftInBucket === 100) {
+      // ปิดหน้าต่างเมื่อพ้นช่วงประมูล (วินาทีที่ 99 = เริ่มรอบใหม่)
+      if (timeLeftInBucket === 99 || timeLeftInBucket === 100) {
         setShowAuction(false);
       }
     }, 1000);
@@ -828,6 +850,26 @@ function App() {
   };
 
   const buyStock = (symbol, price, amount) => {
+    // 🛡️ ป้องกันซื้อหุ้นตัวเอง
+    if (symbol === username) {
+      alert("❌ ไม่สามารถซื้อหุ้นบริษัทตัวเองได้!");
+      return;
+    }
+
+    // 🛡️ ตรวจสอบ Port Limit
+    const currentShares = portfolio[symbol]?.shares || 0;
+    if (currentShares + amount > 200) {
+      alert(`❌ สามารถถือหุ้น ${symbol} ได้สูงสุด 200 หุ้น/ตัว`);
+      return;
+    }
+
+    // 🛡️ หุ้นผู้เล่น: สวิงไม่เกิน 3x ของราคา IPO ที่เคย sync มา
+    const stock = globalStocks.find(s => s.symbol === symbol || s.owner === symbol);
+    if (stock?.isPlayer && stock?.ipoPrice && price > stock.ipoPrice * 3) {
+      alert(`❌ ราคาหุ้น ${symbol} สูงเกินเพดานควบคุม (3x IPO price) ไม่อนุญาตให้ซื้อ`);
+      return;
+    }
+
     const costTotal = price * amount;
     if (moneyRef.current >= costTotal) {
       moneyRef.current -= costTotal;
@@ -840,13 +882,29 @@ function App() {
       });
       setLogs(prev => [`ซื้อหุ้น ${symbol} จำนวน ${amount} หุ้น (฿${costTotal.toLocaleString()})`, ...prev].slice(0, 15));
       syncDatabase(moneyRef.current);
+    } else {
+      alert("❌ เงินไม่พอ!");
     }
   };
+
+  const CAPITAL_GAINS_TAX = 0.15; // ภาษีกำไร 15%
 
   const sellStock = (symbol, price, amount) => {
     const myStock = portfolio[symbol];
     if (myStock && myStock.shares >= amount) {
-      const revenueTotal = price * amount;
+      const rawRevenue = price * amount;
+      const costBasis = myStock.avgCost * amount; // ต้นทุนจริง
+      const profit = rawRevenue - costBasis;
+
+      // 🛡️ Cap กำไรสูงสุด 3x ของต้นทุน
+      const maxPayout = costBasis * 3;
+      const cappedRevenue = Math.min(rawRevenue, maxPayout);
+
+      // 🛡️ หักภาษี 15% จากกำไรเท่านั้น
+      const cappedProfit = Math.max(0, cappedRevenue - costBasis);
+      const tax = Math.floor(cappedProfit * CAPITAL_GAINS_TAX);
+      const revenueTotal = Math.floor(cappedRevenue - tax);
+
       moneyRef.current += revenueTotal;
       setMoney(Math.floor(moneyRef.current));
       setPortfolio(prev => {
@@ -859,7 +917,11 @@ function App() {
         }
         return { ...prev, [symbol]: { ...old, shares: newShares } };
       });
-      setLogs(prev => [`ขายหุ้น ${symbol} จำนวน ${amount} หุ้น ได้เงิน ฿${revenueTotal.toLocaleString()}`, ...prev].slice(0, 15));
+
+      const logMsg = tax > 0
+        ? `ขายหุ้น ${symbol} ได้เงิน ฿${revenueTotal.toLocaleString()} (ภาษีกำไรหัก ฿${tax.toLocaleString()})`
+        : `ขายหุ้น ${symbol} จำนวน ${amount} หุ้น ได้เงิน ฿${revenueTotal.toLocaleString()}`;
+      setLogs(prev => [logMsg, ...prev].slice(0, 15));
       syncDatabase(moneyRef.current);
     }
   };

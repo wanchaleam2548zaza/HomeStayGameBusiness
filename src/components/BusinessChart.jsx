@@ -28,26 +28,28 @@ const CustomDot = (props) => {
 };
 
 const BusinessChart = ({ data }) => (
-  <ResponsiveContainer width="100%" height="100%">
-    <AreaChart data={data}>
-      <defs>
-        <linearGradient id="waterWave" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="5%" stopColor="#00E1FF" stopOpacity={0.8}/>
-          <stop offset="95%" stopColor="#0055FF" stopOpacity={0}/>
-        </linearGradient>
-      </defs>
-      <XAxis dataKey="time" hide />
-      <YAxis domain={['dataMin - 100', 'auto']} hide />
-      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255, 255, 255, 0.1)', strokeWidth: 2 }} />
-      <Area 
-        type="monotone" dataKey="value" stroke="#00E1FF" strokeWidth={3} 
-        fillOpacity={1} fill="url(#waterWave)" 
-        dot={<CustomDot />} activeDot={{ r: 6, fill: '#fff', stroke: '#00E1FF', strokeWidth: 2 }}
-        isAnimationActive={true} animationDuration={400} 
-      />
-      <Brush dataKey="time" height={25} stroke="rgba(0, 225, 255, 0.4)" fill="rgba(0,0,0,0.6)" travellerWidth={12} tickFormatter={() => ''} />
-    </AreaChart>
-  </ResponsiveContainer>
+  <div style={{ width: '100%', flex: 1, minHeight: 0, minWidth: 0 }}>
+    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+      <AreaChart data={data}>
+        <defs>
+          <linearGradient id="waterWave" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#00E1FF" stopOpacity={0.8} />
+            <stop offset="95%" stopColor="#0055FF" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis dataKey="time" hide />
+        <YAxis domain={['dataMin - 100', 'auto']} hide />
+        <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255, 255, 255, 0.1)', strokeWidth: 2 }} />
+        <Area
+          type="monotone" dataKey="value" stroke="#00E1FF" strokeWidth={3}
+          fillOpacity={1} fill="url(#waterWave)"
+          dot={<CustomDot />} activeDot={{ r: 6, fill: '#fff', stroke: '#00E1FF', strokeWidth: 2 }}
+          isAnimationActive={true} animationDuration={400}
+        />
+        <Brush dataKey="time" height={25} stroke="rgba(0, 225, 255, 0.4)" fill="rgba(0,0,0,0.6)" travellerWidth={12} tickFormatter={() => ''} />
+      </AreaChart>
+    </ResponsiveContainer>
+  </div>
 );
 
 export default BusinessChart;
