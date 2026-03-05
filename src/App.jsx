@@ -867,8 +867,8 @@ function App() {
 
       setAuctionTimeLeft(timeLeftInBucket);
 
-      // ช่วง 10 วินาทีสุดท้าย = ช่วงประมูล
-      const isPhase = timeLeftInBucket <= 10 && timeLeftInBucket > 0;
+      // ช่วง 50 วินาทีสุดท้าย = ช่วงประมูล
+      const isPhase = timeLeftInBucket <= 50 && timeLeftInBucket > 0;
       setIsAuctionPhase(isPhase);
 
       // เปิดหน้าต่างเมื่อเข้าช่วงประมูล (แค่ครั้งเดียวต่อรอบ)
@@ -936,9 +936,9 @@ function App() {
         }
       }
 
-      // 🔄 รีเซ็ตข้อมูลประมูลเมื่อใกล้เริ่มรอบใหม่ (วิ 10-12)
+      // 🔄 รีเซ็ตข้อมูลประมูลเมื่อใกล้เริ่มรอบใหม่ (วิ 50-52)
       // ⚠️ ข้ามการรีเซ็ตถ้ายังมีผู้ชนะที่ยังไม่ได้รับรางวัล! กันการล้างข้อมูลผู้ชนะก่อนรับของ
-      const isAuctionStarting = timeLeftInBucket <= 12 && timeLeftInBucket >= 10;
+      const isAuctionStarting = timeLeftInBucket <= 52 && timeLeftInBucket >= 50;
       const hasUnpaidWinner = auctionData.bidder && auctionData.bidder !== "ไม่มี" && !auctionData.isPaid && auctionData.itemId;
       if (auctionData.lastResetBucket !== currentBucket && isAuctionStarting && !hasUnpaidWinner) {
         await update(auctionRef, {
@@ -1108,7 +1108,18 @@ function App() {
         ? `ขายหุ้น ${symbol} ได้เงิน ฿${revenueTotal.toLocaleString()} (ภาษีกำไรหัก ฿${tax.toLocaleString()})`
         : `ขายหุ้น ${symbol} จำนวน ${amount} หุ้น ได้เงิน ฿${revenueTotal.toLocaleString()}`;
       setLogs(prev => [logMsg, ...prev].slice(0, 15));
-      syncDatabase(moneyRef.current);
+
+      // 🛡️ ป้องกันบัคเงินหาย: ดึง state จากการทำงานมาเซฟลง DB ทันที
+      const updatedPortfolio = { ...portfolio };
+      if (updatedPortfolio[symbol]) {
+        updatedPortfolio[symbol].shares -= amount;
+        if (updatedPortfolio[symbol].shares <= 0) delete updatedPortfolio[symbol];
+      }
+
+      update(ref(db, `users/${username}`), {
+        money: Math.floor(moneyRef.current),
+        portfolio: updatedPortfolio
+      }).then(() => syncDatabase(moneyRef.current));
     }
   };
 
