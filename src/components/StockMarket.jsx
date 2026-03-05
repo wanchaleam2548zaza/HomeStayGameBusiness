@@ -6,10 +6,9 @@ const StockMarket = ({ show, onClose, money, marketStocks, portfolio, onBuy, onS
 
   if (!show) return null;
 
-  // กรองหุ้นตาม Tab ที่เลือก
-  const displayedStocks = activeTab === 'all'
-    ? marketStocks
-    : marketStocks.filter(stock => portfolio[stock.symbol] && portfolio[stock.symbol].shares > 0);
+  // กรองหุ้นตาม Tab ที่เลือก — เฉพาะหุ้นที่ถือจริง (shares > 0)
+  const myHoldings = marketStocks.filter(stock => portfolio[stock.symbol] && portfolio[stock.symbol].shares > 0);
+  const displayedStocks = activeTab === 'all' ? marketStocks : myHoldings;
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(5px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
@@ -36,7 +35,7 @@ const StockMarket = ({ show, onClose, money, marketStocks, portfolio, onBuy, onS
             onClick={() => setActiveTab('portfolio')}
             style={{ flex: 1, padding: '10px', background: activeTab === 'portfolio' ? 'rgba(0,255,136,0.15)' : 'transparent', border: 'none', color: activeTab === 'portfolio' ? '#00ff88' : '#888', borderBottom: activeTab === 'portfolio' ? '2px solid #00ff88' : 'none', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}
           >
-            พอร์ตของฉัน ({Object.keys(portfolio).length})
+            พอร์ตของฉัน ({myHoldings.length})
           </button>
         </div>
 

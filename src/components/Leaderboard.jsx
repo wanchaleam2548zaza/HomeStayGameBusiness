@@ -1,9 +1,25 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { TITLES } from '../config/auctionData';
 
-const Leaderboard = ({ show, onClose, competitors, username, businessTypes }) => {
-  // ถ้า show เป็น false ให้ซ่อน Component นี้ไปเลย
+const Leaderboard = ({ show, onClose, competitors, username, businessTypes, refreshInterval = 15 }) => {
+  const [countdown, setCountdown] = useState(refreshInterval);
+
+  // Countdown timer ที่นับลงแล้ว reset ทุก refreshInterval วินาที
+  useEffect(() => {
+    if (!show) return;
+    setCountdown(refreshInterval);
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) return refreshInterval;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [show, refreshInterval]);
+
   if (!show) return null;
+
+  const pct = ((refreshInterval - countdown) / refreshInterval) * 100;
 
   return (
     <div
@@ -23,60 +39,75 @@ const Leaderboard = ({ show, onClose, competitors, username, businessTypes }) =>
           display: 'flex', flexDirection: 'column', boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
         }}
       >
-        {/* Header ของ Modal */}
-        <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>🏆 กระดานผู้นำธุรกิจ</span>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}>✖</button>
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <span style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>🏆 กระดานผู้นำธุรกิจ</span>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}>✖</button>
+          </div>
+
+          {/* Refresh countdown bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
+              🔄 refresh ใน {countdown}s
+            </span>
+            <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${pct}%`,
+                background: countdown <= 3 ? '#00ff88' : 'rgba(255,255,255,0.3)',
+                borderRadius: '2px',
+                transition: 'width 1s linear, background 0.3s'
+              }} />
+            </div>
+          </div>
         </div>
 
-        {/* Content ด้านใน (เลื่อน Scroll ได้) */}
+        {/* Content */}
         <div style={{ overflowY: 'auto', padding: '10px', flex: 1 }}>
           {competitors.map((comp, idx) => {
             const isMe = comp.username === username;
             const bIcon = businessTypes[comp.businessType]?.icon || '🏢';
-
-            // สีเหรียญทอง เงิน ทองแดง
             const rankColor = idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#888';
+            const rankEmoji = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
 
             return (
               <div key={comp.username} style={{
-                display: 'flex', justifyContent: 'space-between', padding: '15px 10px',
+                display: 'flex', justifyContent: 'space-between', padding: '12px 10px',
                 borderBottom: '1px solid rgba(255,255,255,0.05)',
-                background: isMe ? 'rgba(0, 255, 136, 0.1)' : 'transparent',
-                borderRadius: isMe ? '8px' : '0'
+                background: isMe ? 'rgba(0, 255, 136, 0.08)' : 'transparent',
+                borderRadius: isMe ? '8px' : '0',
+                transition: 'background 0.2s'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <strong style={{ width: '25px', color: rankColor, fontSize: '1.1rem' }}>
-                    #{idx + 1}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <strong style={{ width: '28px', color: rankColor, fontSize: '1rem', textAlign: 'center' }}>
+                    {rankEmoji || `#${idx + 1}`}
                   </strong>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '0.9rem' }}>
                       {bIcon} {comp.displayName}
-                      {isMe && <span style={{ color: '#00ff88', fontSize: '0.75rem', marginLeft: '5px' }}>(คุณ)</span>}
+                      {isMe && <span style={{ color: '#00ff88', fontSize: '0.72rem', marginLeft: '5px' }}>(คุณ)</span>}
                     </span>
-                    {/* 🔴 แสดงฉายาถ้ามี */}
                     {comp.activeTitle && TITLES[comp.activeTitle] && (
                       <span style={{
-                        fontSize: '0.6rem',
-                        width: 'fit-content',
-                        marginTop: '2px',
-                        padding: '2px 5px',
-                        borderRadius: '4px',
-                        background: TITLES[comp.activeTitle].color,
-                        color: '#fff'
+                        fontSize: '0.6rem', width: 'fit-content', marginTop: '2px',
+                        padding: '2px 5px', borderRadius: '4px',
+                        background: TITLES[comp.activeTitle].color, color: '#fff'
                       }}>
                         {TITLES[comp.activeTitle].name}
                       </span>
                     )}
                   </div>
                 </div>
-                <strong className={comp.money < 0 ? "danger" : "success"} style={{ fontSize: '0.9rem' }}>
+                <strong className={comp.money < 0 ? "danger" : "success"} style={{ fontSize: '0.9rem', alignSelf: 'center' }}>
                   ฿{comp.money.toLocaleString()}
                 </strong>
               </div>
             );
           })}
-          {competitors.length === 0 && <p style={{ textAlign: 'center', color: '#888', marginTop: '20px' }}>กำลังโหลดข้อมูลคู่แข่ง...</p>}
+          {competitors.length === 0 && (
+            <p style={{ textAlign: 'center', color: '#888', marginTop: '20px' }}>กำลังโหลดข้อมูลคู่แข่ง...</p>
+          )}
         </div>
       </div>
     </div>

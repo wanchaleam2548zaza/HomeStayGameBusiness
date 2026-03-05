@@ -1160,12 +1160,17 @@ function App() {
     if (moneyRef.current >= costTotal) {
       moneyRef.current -= costTotal;
       setMoney(Math.floor(moneyRef.current));
-      setPortfolio(prev => {
-        const old = prev[symbol] || { shares: 0, avgCost: 0 };
-        const newShares = old.shares + amount;
-        const newAvgCost = ((old.shares * old.avgCost) + costTotal) / newShares;
-        return { ...prev, [symbol]: { shares: newShares, avgCost: newAvgCost } };
-      });
+
+      // คำนวณ portfolio ใหม่ทันที เพื่อ sync ได้ถูกทันที
+      const old = stateRef.current.portfolio[symbol] || { shares: 0, avgCost: 0 };
+      const newShares = old.shares + amount;
+      const newAvgCost = ((old.shares * old.avgCost) + costTotal) / newShares;
+      const updatedPortfolio = { ...stateRef.current.portfolio, [symbol]: { shares: newShares, avgCost: newAvgCost } };
+
+      // อัปเดต stateRef ทันทีก่อน syncDatabase (เพื่อป้องกันปิด async state)
+      stateRef.current = { ...stateRef.current, portfolio: updatedPortfolio };
+      setPortfolio(updatedPortfolio);
+
       setLogs(prev => [`ซื้อหุ้น ${symbol} จำนวน ${amount} หุ้น (฿${costTotal.toLocaleString()})`, ...prev].slice(0, 15));
       syncDatabase(moneyRef.current);
     } else {
@@ -1193,33 +1198,25 @@ function App() {
 
       moneyRef.current += revenueTotal;
       setMoney(Math.floor(moneyRef.current));
-      setPortfolio(prev => {
-        const old = prev[symbol];
-        const newShares = old.shares - amount;
-        if (newShares === 0) {
-          const newPort = { ...prev };
-          delete newPort[symbol];
-          return newPort;
-        }
-        return { ...prev, [symbol]: { ...old, shares: newShares } };
-      });
+
+      // คำนวณ portfolio ใหม่ทันที เพื่อ sync ได้ถูก
+      const old = stateRef.current.portfolio[symbol];
+      const newShares = old.shares - amount;
+      let updatedPortfolio;
+      if (newShares === 0) {
+        updatedPortfolio = { ...stateRef.current.portfolio };
+        delete updatedPortfolio[symbol];
+      } else {
+        updatedPortfolio = { ...stateRef.current.portfolio, [symbol]: { ...old, shares: newShares } };
+      }
+      stateRef.current = { ...stateRef.current, portfolio: updatedPortfolio };
+      setPortfolio(updatedPortfolio);
 
       const logMsg = tax > 0
         ? `ขายหุ้น ${symbol} ได้เงิน ฿${revenueTotal.toLocaleString()} (ภาษีกำไรหัก ฿${tax.toLocaleString()})`
         : `ขายหุ้น ${symbol} จำนวน ${amount} หุ้น ได้เงิน ฿${revenueTotal.toLocaleString()}`;
       setLogs(prev => [logMsg, ...prev].slice(0, 15));
-
-      // 🛡️ ป้องกันบัคเงินหาย: ดึง state จากการทำงานมาเซฟลง DB ทันที
-      const updatedPortfolio = { ...portfolio };
-      if (updatedPortfolio[symbol]) {
-        updatedPortfolio[symbol].shares -= amount;
-        if (updatedPortfolio[symbol].shares <= 0) delete updatedPortfolio[symbol];
-      }
-
-      update(ref(db, `users/${username}`), {
-        money: Math.floor(moneyRef.current),
-        portfolio: updatedPortfolio
-      }).then(() => syncDatabase(moneyRef.current));
+      syncDatabase(moneyRef.current);
     }
   };
 
@@ -1738,7 +1735,7 @@ function App() {
         show={showUpdateLog}
         onClose={() => setShowUpdateLog(false)}
       />
-      <Leaderboard show={showLeaderboard} onClose={() => setShowLeaderboard(false)} competitors={competitors} username={username} businessTypes={BUSINESS_TYPES} />
+      <Leaderboard show={showLeaderboard} onClose={() => setShowLeaderboard(false)} competitors={competitors} username={username} businessTypes={BUSINESS_TYPES} refreshInterval={15} />
       <StockMarket show={showStockMarket} onClose={() => setShowStockMarket(false)} money={moneyRef.current} marketStocks={combinedStocks} portfolio={portfolio} onBuy={buyStock} onSell={sellStock} username={username} />
 
       {/* IP Conflict Warning Modal */}
