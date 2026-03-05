@@ -150,6 +150,7 @@ function App() {
         businessType: stateRef.current.businessType,
         portfolio: stateRef.current.portfolio,
         isIPO: stateRef.current.isIPO,
+        displayName: stateRef.current.displayName || "Anonymous Player",
         // ดึงจาก stateRef เท่านั้นเพื่อป้องกันฉายาหาย
         inventory: stateRef.current.inventory || [],
         activeTitle: stateRef.current.activeTitle || null,
@@ -168,7 +169,12 @@ function App() {
           price: currentStockPrice,
           prevPrice: prevPrice,
           owner: username,
-          isPlayer: true
+          isPlayer: true,
+          // --- รายละเอียดเพิ่มเติมที่เพิ่มเข้าไป ---
+          marketCap: currentStockPrice * 10000, // สมมติว่ามีหุ้นทั้งหมด 10,000 หุ้น
+          netProfit: Math.floor(netProfit), // กำไรต่อวินาที
+          health: reputation > 50 ? "ดีเยี่ยม" : (reputation > 20 ? "ปกติ" : "เสี่ยง"), // สภาพคล่องบริษัท
+          dividend: Math.floor(netProfit * 0.05) // ปันผลสมมติ 5% ของกำไร
         });
         lastStockPriceRef.current = currentStockPrice;
       }
@@ -251,13 +257,16 @@ function App() {
       const snap = await get(ref(db, 'users'));
       if (snap.exists()) {
         const data = snap.val();
-        const usersArray = Object.keys(data).map(key => ({
-          username: key,
-          displayName: data[key].displayName || "Unknown",
-          money: data[key].money || 0,
-          businessType: data[key].businessType || 'homestay',
-          activeTitle: data[key].activeTitle || null
-        })).sort((a, b) => b.money - a.money);
+        const usersArray = Object.keys(data).map(key => {
+          const user = data[key];
+          return {
+            username: key,
+            displayName: user.displayName || user.playerName || "Anonymous Player",
+            money: user.money || 0,
+            businessType: user.businessType || 'homestay',
+            activeTitle: user.activeTitle || null
+          };
+        }).sort((a, b) => b.money - a.money);
         setCompetitors(usersArray);
         const rankIndex = usersArray.findIndex(u => u.username === username);
         setMyRank(rankIndex !== -1 ? rankIndex + 1 : "-");
@@ -397,6 +406,42 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('homestay_user');
     window.location.reload();
+  };
+
+  const handleBankruptcy = async () => {
+    if (!window.confirm("⚠️ ยืนยันการยื่นล้มละลาย? หนี้จะหายไปแต่กิจการจะถูกรีเซ็ตทั้งหมด!")) return;
+
+    // 1. กำหนดค่าเริ่มต้นใหม่ (เริ่มต้นใหม่จากศูนย์)
+    const startingMoney = 2000; // เงินก้อนสุดท้ายสำหรับตั้งตัว
+    moneyRef.current = startingMoney;
+    setMoney(startingMoney);
+
+    setDebt(0);
+    debtRef.current = 0;
+
+    setFleetSize(1); // รีเซ็ตขนาดธุรกิจเหลือ 1
+    setReputation(5); // เสียชื่อเสียงจากการล้มละลาย
+    setBrandHype(50); // Hype ร่วง
+    setIsIPO(false); // ถอดออกจากตลาดหลักทรัพย์
+
+    // 2. ลบข้อมูลหุ้นออกจากตลาดโลก
+    try {
+      if (username) {
+        await remove(ref(db, `global_stocks/${username}`));
+      }
+
+      // 3. บันทึก Log
+      const newLog = "🚨 คุณได้ยื่นล้มละลาย! หนี้สินถูกล้างออกแล้ว เริ่มต้นชีวิตใหม่อีกครั้ง";
+      setLogs(prev => [newLog, ...prev].slice(0, 15));
+
+      // 4. อัปเดต Database ทันที
+      await syncDatabase(startingMoney);
+
+      setShowLoanModal(false); // ปิดหน้าต่างธนาคาร
+      alert("ยื่นล้มละลายสำเร็จ! ระบบได้ล้างหนี้และรีเซ็ตธุรกิจของคุณแล้ว");
+    } catch (err) {
+      console.error("Bankruptcy Error:", err);
+    }
   };
 
   const showInfo = (type) => {
@@ -1092,6 +1137,25 @@ function App() {
             </div>
 
             <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <p style={{ fontSize: '0.7rem', color: '#ff4757', marginBottom: '10px' }}>
+                * หากไม่สามารถชำระหนี้ได้ คุณสามารถยื่นเรื่องล้มละลายเพื่อล้างหนี้ทั้งหมด
+              </p>
+              <button
+                onClick={handleBankruptcy}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #ff4757',
+                  color: '#ff4757',
+                  padding: '5px 15px',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  fontSize: '0.8rem',
+                  marginBottom: '10px',
+                  width: '100%'
+                }}
+              >
+                🏛️ ยื่นคำร้องล้มละลาย
+              </button>
               <p style={{ fontSize: '0.7rem', color: '#aaa' }}>
                 {money < 0 ? "⚠️ บัญชีติดลบ! ระบบธนาคารอนุญาตให้กู้เงินเพื่อรักษาสภาพคล่อง" : "เงินกู้อนุมัติไว พร้อมใช้งานทันที"}
               </p>
