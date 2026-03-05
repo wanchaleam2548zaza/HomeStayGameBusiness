@@ -84,13 +84,17 @@ html {
 .game-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
+  /* dvh = dynamic viewport height (ตัด address bar ออก) */
   max-width: 600px;
   margin: 0 auto;
   padding: 12px 12px 80px 12px;
-  /* Extra padding for bottom nav */
+  /* padding-bottom เผื่อ bottom nav */
   gap: 10px;
   position: relative;
+  overflow-y: auto;
+  /* ให้ scroll ได้เมื่อเนื้อหาสูงกว่าจอ */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* --- Bottom Nav --- */
@@ -351,21 +355,6 @@ html {
 
   .info-card strong {
     font-size: 1rem;
-  }
-
-  .action-grid {
-    height: 180px;
-    gap: 6px;
-  }
-
-  .control-box h3 {
-    font-size: 1rem;
-  }
-
-  .action-grid {
-    height: 260px;
-    /* เพิ่มพื้นที่บนมือถือเพื่อให้เห็นทั้งปุ่มและ Logs */
-    gap: 8px;
   }
 
   /* ปรับให้พื้นที่ข่าวขยายได้เต็มที่ */

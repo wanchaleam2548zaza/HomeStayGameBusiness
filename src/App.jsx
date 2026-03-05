@@ -354,7 +354,11 @@ function App() {
       if (snap.exists()) {
         const data = snap.val();
         const usersArray = Object.keys(data)
-          .filter(key => typeof data[key] === 'object' && data[key] !== null && (data[key].money !== undefined || data[key].displayName !== undefined))
+          .filter(key =>
+            key !== 'homestaywann' && // 🛡️ ไม่โชว์ admin ใน leaderboard
+            typeof data[key] === 'object' && data[key] !== null &&
+            (data[key].money !== undefined || data[key].displayName !== undefined)
+          )
           .map(key => {
             const user = data[key];
             return {
@@ -890,6 +894,23 @@ function App() {
     return () => { giftUnsub(); pendingUnsub(); };
   }, [authStep, username]);
 
+  // 📱 ตรวจจับ device อื่นเข้า account เดียวกัน → kick ออกทันที
+  useEffect(() => {
+    if (authStep !== "game" || !username || username === "homestaywann") return;
+    const deviceRef = ref(db, `users/${username}/deviceId`);
+    const unsubscribe = onValue(deviceRef, (snap) => {
+      if (!snap.exists()) return;
+      const dbDeviceId = snap.val();
+      // ถ้า deviceId ใน DB ต่างจากของเครื่องนี้ แสดงว่ามีคนอื่น login แล้ว
+      if (dbDeviceId && dbDeviceId !== DEVICE_ID) {
+        alert("⚠️ บัญชีนี้ถูกเข้าสู่ระบบบนอุปกรณ์อื่น คุณถูก logout อัตโนมัติ");
+        localStorage.removeItem('homestay_user');
+        localStorage.removeItem('homestay_device_owner');
+        window.location.reload();
+      }
+    });
+    return () => unsubscribe();
+  }, [authStep, username]);
 
   // 🔄 ระบบ Force Refresh จาก Admin
   useEffect(() => {
