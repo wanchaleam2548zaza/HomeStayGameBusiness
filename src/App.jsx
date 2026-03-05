@@ -201,8 +201,13 @@ function App() {
         const currentStockPrice = Math.min(rawStockPrice, ipoPrice * 3);
 
         const prevPrice = lastStockPriceRef.current || currentStockPrice;
+
+        // 🛡️ สร้าง Symbol จาก DisplayName แทน Username เพื่อความปลอดภัย
+        let safeSymbol = stateRef.current.displayName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase();
+        while (safeSymbol.length < 4) safeSymbol += 'X'; // เติม X ให้ครบ 4 ตัวถ้าชื่อสั้นหรือมีแต่อักขระพิเศษ
+
         await update(ref(db, `global_stocks/${username}`), {
-          symbol: username.substring(0, 4).toUpperCase(),
+          symbol: safeSymbol,
           name: `${stateRef.current.displayName} Corp`,
           price: currentStockPrice,
           prevPrice: prevPrice,
