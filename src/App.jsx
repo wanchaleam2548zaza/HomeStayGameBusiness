@@ -932,9 +932,10 @@ function App() {
       }
 
       // 🔄 รีเซ็ตข้อมูลประมูลเมื่อใกล้เริ่มรอบใหม่ (วิ 10-12)
-      // รอให้ winner รับรางวัลไปก่อน (ส่วนบนข้างบนทำงานได้ทำงานทุกวินาทีหลังรอบเก่าจบ)
+      // ⚠️ ข้ามการรีเซ็ตถ้ายังมีผู้ชนะที่ยังไม่ได้รับรางวัล! กันการล้างข้อมูลผู้ชนะก่อนรับของ
       const isAuctionStarting = timeLeftInBucket <= 12 && timeLeftInBucket >= 10;
-      if (auctionData.lastResetBucket !== currentBucket && isAuctionStarting) {
+      const hasUnpaidWinner = auctionData.bidder && auctionData.bidder !== "ไม่มี" && !auctionData.isPaid && auctionData.itemId;
+      if (auctionData.lastResetBucket !== currentBucket && isAuctionStarting && !hasUnpaidWinner) {
         await update(auctionRef, {
           bidder: "ไม่มี",
           price: 0,
@@ -1578,6 +1579,7 @@ function App() {
         username={username}
         money={moneyRef.current}
         inventory={inventory}
+        isAuctionPhase={isAuctionPhase}
         onClose={() => setShowAuction(false)}
       />
       <IncomeModal

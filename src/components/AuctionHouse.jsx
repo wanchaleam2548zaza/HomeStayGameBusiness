@@ -3,7 +3,7 @@ import { db } from '../firebase';
 import { ref, onValue, runTransaction } from "firebase/database";
 import { TITLES } from '../config/auctionData.js';
 
-const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
+const AuctionHouse = ({ show, item, username, money, inventory, isAuctionPhase, onClose }) => {
     const [currentBid, setCurrentBid] = useState(0);
     const [highestBidder, setHighestBidder] = useState('');
     const [bidAmount, setBidAmount] = useState(0);
@@ -42,6 +42,10 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
     }, [item]);
 
     const handleBid = async () => {
+        if (!isAuctionPhase) {
+            alert("❌ ยังไม่อยู่ในช่วงประมูล! \nสามารถเสนอราคาได้เฉพาะตอนนับถอยหลัง 10 วินาที เท่านั้น!");
+            return;
+        }
         if (alreadyOwned) return;
         if (money < bidAmount) return alert("❌ เงินไม่พอประมูล!");
 
@@ -155,23 +159,41 @@ const AuctionHouse = ({ show, item, username, money, inventory, onClose }) => {
                     </>
                 )}
 
+                {/* แสดงสถานะช่วงเวลาประมูล */}
+                {!alreadyOwned && (
+                    <div style={{
+                        padding: '8px 12px',
+                        marginBottom: '10px',
+                        borderRadius: '8px',
+                        textAlign: 'center',
+                        fontSize: '0.75rem',
+                        background: isAuctionPhase ? 'rgba(0,255,136,0.1)' : 'rgba(255,183,0,0.1)',
+                        border: `1px solid ${isAuctionPhase ? '#00ff88' : '#ffb700'}`,
+                        color: isAuctionPhase ? '#00ff88' : '#ffb700'
+                    }}>
+                        {isAuctionPhase
+                            ? '🔥 ช่วงประมูลเปิดอยู่! กดเสนอราคาได้เลย'
+                            : '⏳ รอช่วงประมูล (10 วินาทีสุดท้ายของรอบ)'}
+                    </div>
+                )}
+
                 <button
                     className="primary-btn"
                     style={{
-                        background: alreadyOwned ? '#333' : 'linear-gradient(to right, #ff0055, #ff4757)',
+                        background: alreadyOwned ? '#333' : !isAuctionPhase ? 'rgba(255,183,0,0.3)' : 'linear-gradient(to right, #ff0055, #ff4757)',
                         border: 'none',
                         padding: '12px',
                         fontSize: '1rem',
                         fontWeight: 'bold',
                         width: '100%',
                         marginBottom: '10px',
-                        cursor: alreadyOwned ? 'default' : 'pointer',
-                        opacity: alreadyOwned ? 0.6 : 1
+                        cursor: (alreadyOwned || !isAuctionPhase) ? 'not-allowed' : 'pointer',
+                        opacity: (alreadyOwned || !isAuctionPhase) ? 0.6 : 1
                     }}
                     onClick={handleBid}
-                    disabled={alreadyOwned}
+                    disabled={alreadyOwned || !isAuctionPhase}
                 >
-                    {alreadyOwned ? "คุณมีฉายานี้แล้ว (ดูเท่านั้น)" : `เสนอราคา ฿${bidAmount.toLocaleString()}`}
+                    {alreadyOwned ? 'คุณมีฉายานี้แล้ว (ดูเท่านั้น)' : !isAuctionPhase ? '⏳ รอช่วงประมูล...' : `เสนอราคา ฿${bidAmount.toLocaleString()}`}
                 </button>
 
                 <p style={{ fontSize: '0.8rem', color: '#ff4757', textAlign: 'center', fontWeight: 'bold' }}>
