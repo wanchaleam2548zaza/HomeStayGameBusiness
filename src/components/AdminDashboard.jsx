@@ -7,6 +7,7 @@ const AdminDashboard = ({ username, onLogout }) => {
     const [logs, setLogs] = useState([]);
     const [selectedUser, setSelectedUser] = useState('');
     const [addMoneyAmount, setAddMoneyAmount] = useState(1000000);
+    const [adminMessage, setAdminMessage] = useState('');
 
     // ป้องกันการเข้าถึงจากผู้ใช้ทั่วไปซ้ำอีกชั้น
     if (username !== 'homestaywann') {
@@ -36,15 +37,31 @@ const AdminDashboard = ({ username, onLogout }) => {
         try {
             const snap = await get(userRef);
             if (snap.exists()) {
-                const data = snap.val();
-                const newMoney = (data.money || 0) + Number(addMoneyAmount);
-                await update(userRef, { money: newMoney });
-                addLog(`เสกเงินให้ ${selectedUser} จำนวน ${Number(addMoneyAmount).toLocaleString()} บาท (รวมเป็น ${newMoney.toLocaleString()})`);
-                alert(`✅ เสกเงินสำเร็จ!`);
+                await update(userRef, {
+                    adminGift: Number(addMoneyAmount),
+                    adminMessage: adminMessage.trim() || null
+                });
+                addLog(`🎁 ส่งเงินของขวัญให้ ${selectedUser}: +฿${Number(addMoneyAmount).toLocaleString()} ${adminMessage ? `("ข้อความ: ${adminMessage}")` : ''}`);
+                alert(`✅ ส่งเงินสำเร็จ! ผู้เล่นจะได้รับเงินเร็วๆ นี้`);
+                setAdminMessage('');
+            } else {
+                alert("ไม่พบผู้เล่นนี้ในระบบ");
             }
         } catch (err) {
             console.error(err);
             alert("เกิดข้อผิดพลาด");
+        }
+    };
+
+    const handleForceRefresh = async () => {
+        if (!window.confirm("🔄 ยืนยันการ Refresh ทุก Client? ผู้เล่นทุกคนจะถูกโหลดสไลด์หน้าจอ")) return;
+        try {
+            await update(ref(db, 'global_reload'), { timestamp: Date.now(), by: 'admin' });
+            addLog('🔄 Force Refresh ส่งสู่ทุก Client แล้ว!');
+            alert('✅ ส่ง Refresh สำเร็จ! Client ทุกคนกำลังโหลดหน้าใหม่');
+        } catch (err) {
+            console.error(err);
+            alert('เกิดข้อผิดพลาด');
         }
     };
 
@@ -148,14 +165,34 @@ const AdminDashboard = ({ username, onLogout }) => {
                             value={addMoneyAmount}
                             onChange={(e) => setAddMoneyAmount(e.target.value)}
                             style={{ flex: 1, padding: '8px', background: '#010409', color: '#fff', border: '1px solid #30363d', borderRadius: '6px' }}
+                            placeholder="จำนวนเงิน"
                         />
                         <button onClick={handleAddMoney} style={{
                             background: '#2ea043', color: 'white', border: 'none',
                             padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'
                         }}>เสกเงิน (+)</button>
                     </div>
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.85rem', color: '#8b949e' }}>
+                            ข้อความถึงผู้เล่น (ไม่บังคับ):
+                        </label>
+                        <input
+                            type="text"
+                            value={adminMessage}
+                            onChange={(e) => setAdminMessage(e.target.value)}
+                            style={{ width: '100%', padding: '8px', background: '#010409', color: '#fff', border: '1px solid #30363d', borderRadius: '6px', boxSizing: 'border-box' }}
+                            placeholder="เช่น: รางวัลพิเศษสำหรับผู้เล่นเก่a..."
+                        />
+                    </div>
 
-                    <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px dashed #da3633' }}>
+                    <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #30363d' }}>
+                        <button onClick={handleForceRefresh} style={{
+                            width: '100%', background: '#1f6feb', color: 'white', border: 'none',
+                            padding: '10px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px'
+                        }}>🔄 Force Refresh ทุก Client</button>
+                    </div>
+
+                    <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px dashed #da3633' }}>
                         <h3 style={{ color: '#da3633', marginTop: 0 }}>☢️ DANGER ZONE</h3>
                         <button onClick={handleResetAllData} style={{
                             width: '100%', background: 'transparent', color: '#da3633', border: '2px solid #da3633',

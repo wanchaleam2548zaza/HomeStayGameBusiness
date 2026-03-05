@@ -842,6 +842,56 @@ function App() {
     }
   }, [currentEvent.msg]);
 
+  // 🎁 ระบบรับเงินจาก Admin (adminGift) + แสดงข้อความจาก Admin
+  const [adminPopup, setAdminPopup] = React.useState(null); // { amount, message }
+  useEffect(() => {
+    if (authStep !== "game" || !username) return;
+    const giftRef = ref(db, `users/${username}/adminGift`);
+    const unsubscribe = onValue(giftRef, async (snap) => {
+      if (!snap.exists()) return;
+      const giftAmount = Number(snap.val());
+      if (!giftAmount || giftAmount <= 0) return;
+
+      // อ่านข้อความจาก Admin (ถ้ามี)
+      const msgSnap = await get(ref(db, `users/${username}/adminMessage`));
+      const message = msgSnap.exists() ? msgSnap.val() : null;
+
+      // รับเงินเข้ากระเป๋า
+      moneyRef.current += giftAmount;
+      setMoney(Math.floor(moneyRef.current));
+
+      // เคลียร์ adminGift + adminMessage ทันทีเพื่อป้องกันรับซ้ำ + บันทึกเงินใหม่
+      await update(ref(db, `users/${username}`), {
+        money: Math.floor(moneyRef.current),
+        adminGift: null,
+        adminMessage: null
+      });
+
+      // แสดง Popup จาก Admin
+      setAdminPopup({ amount: giftAmount, message });
+      setLogs(prev => [`🎁 Admin เสกเงินให้คุณ +฿${giftAmount.toLocaleString()}!`, ...prev].slice(0, 15));
+    });
+    return () => unsubscribe();
+  }, [authStep, username]);
+
+  // 🔄 ระบบ Force Refresh จาก Admin
+  useEffect(() => {
+    if (authStep !== "game" || username === "homestaywann") return;
+    const reloadRef = ref(db, `global_reload`);
+    const savedTs = sessionStorage.getItem('last_reload_ts');
+    const unsubscribe = onValue(reloadRef, (snap) => {
+      if (!snap.exists()) return;
+      const ts = snap.val().timestamp;
+      if (savedTs && ts && String(ts) === savedTs) return; // เป็น reload ที่เราดูแล้ว
+      if (ts) {
+        sessionStorage.setItem('last_reload_ts', String(ts));
+        window.location.reload();
+      }
+    });
+    return () => unsubscribe();
+  }, [authStep, username]);
+
+
   // --- ระบบ sync ข้อมูลประมูล (เพื่ออัปเดต UI เท่านั้น) ---
   // เก็บข้อมูลล่าสุดจาก Firebase ใน ref เพื่อให้ interval ข้างล่างอ่านได้ทุกวินาที
   const latestAuctionDataRef = useRef(null);
@@ -1589,6 +1639,28 @@ function App() {
           </div>
         </div>
       )}
+      {/* 🎁 Admin Gift Popup */}
+      {adminPopup && (
+        <div className="glass-overlay" style={{ zIndex: 20000 }} onClick={() => setAdminPopup(null)}>
+          <div className="glass-panel" style={{ maxWidth: '360px', width: '90%', textAlign: 'center', border: '2px solid #FFD700', padding: '30px', borderRadius: '20px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: '3rem', marginBottom: '10px' }}>🎁</div>
+            <h3 style={{ color: '#FFD700', margin: '0 0 10px' }}>ของขวัญจาก Admin!</h3>
+            <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00ff88', margin: '10px 0' }}>
+              +฿{adminPopup.amount.toLocaleString()}
+            </p>
+            {adminPopup.message && (
+              <div style={{ background: 'rgba(255,215,0,0.1)', border: '1px solid rgba(255,215,0,0.3)', borderRadius: '10px', padding: '12px', margin: '12px 0' }}>
+                <p style={{ fontSize: '0.85rem', color: '#aaa', margin: '0 0 4px' }}>💬 ข้อความจาก Admin:</p>
+                <p style={{ color: '#fff', margin: 0, fontStyle: 'italic' }}>"{adminPopup.message}"</p>
+              </div>
+            )}
+            <button className="primary-btn" onClick={() => setAdminPopup(null)} style={{ marginTop: '15px', width: '100%' }}>
+              รับแล้ว ขอบคุณ! 🙏
+            </button>
+          </div>
+        </div>
+      )}
+
       <AuctionHouse
         show={showAuction}
         item={auctionItem}
