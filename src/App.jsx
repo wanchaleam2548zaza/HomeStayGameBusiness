@@ -13,6 +13,8 @@ import StockMarket from './components/StockMarket';
 import InfoModal from './components/InfoModal';
 import AuctionHouse from './components/AuctionHouse';
 import { TITLES, getSynchronizedAuctionItem } from './config/auctionData';
+import UpdateLogModal from './components/UpdateLogModal';
+import AdminDashboard from './components/AdminDashboard';
 
 // วางต่อจาก import ต่างๆ
 const getDeviceId = () => {
@@ -102,6 +104,7 @@ function App() {
   const [debt, setDebt] = useState(0);
   const [baseLoanLimit] = useState(1000000); // วงเงินกู้สูงสุดพื้นฐาน 1 ล้านบาท
   const [showLoanModal, setShowLoanModal] = useState(false);
+  const [showUpdateLog, setShowUpdateLog] = useState(false);
 
   const showBusinessInfo = (type) => {
     const b = BUSINESS_TYPES[type];
@@ -1030,12 +1033,21 @@ function App() {
     );
   }
 
+  // 🛡️ Admin Dashboard Bypass
+  if (authStep === "game" && username === "homestaywann") {
+    return <AdminDashboard username={username} onLogout={handleLogout} />;
+  }
+
   return (
     <div className="game-container">
       {/* Header - จะกลายเป็น 2x2 บนมือถืออัตโนมัติ */}
       <header className="stats-bar">
         <div className="stat-group">
-          <span className="section-title">{bInfo.name} CEO (<span onClick={handleLogout} style={{ cursor: 'pointer', textDecoration: 'underline' }}>ออก</span>)</span>
+          <span className="section-title">
+            {bInfo.name} CEO
+            (<span onClick={handleLogout} style={{ cursor: 'pointer', textDecoration: 'underline', color: '#ff4757' }}>ออก</span> |
+            <span onClick={() => setShowUpdateLog(true)} style={{ cursor: 'pointer', textDecoration: 'underline', marginLeft: '3px', color: '#00E1FF' }}>แพทช์โน้ต</span>)
+          </span>
           <h2 className="success" style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '1rem' }}>{displayName}</h2>
           <div className="active-title-display" style={{ color: TITLES[activeTitle]?.color || '#aaa', fontSize: '0.7rem', marginTop: '2px', fontWeight: 'bold' }}>
             {activeTitle ? `🏆 ${TITLES[activeTitle].name}` : "🌑 ยังไม่มีฉายา"}
@@ -1341,6 +1353,10 @@ function App() {
         money={moneyRef.current}
         inventory={inventory} // ส่ง inventory ไปให้ AuctionHouse
         onClose={() => setShowAuction(false)}
+      />
+      <UpdateLogModal
+        show={showUpdateLog}
+        onClose={() => setShowUpdateLog(false)}
       />
       <Leaderboard show={showLeaderboard} onClose={() => setShowLeaderboard(false)} competitors={competitors} username={username} businessTypes={BUSINESS_TYPES} />
       <StockMarket show={showStockMarket} onClose={() => setShowStockMarket(false)} money={moneyRef.current} marketStocks={combinedStocks} portfolio={portfolio} onBuy={buyStock} onSell={sellStock} username={username} />
